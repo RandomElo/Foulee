@@ -7,16 +7,10 @@ Application Android de suivi de course à pied à partir de Garmin Connect : sé
 Captures faites sur émulateur avec des données fictives. Le bandeau de synchro y est retouché : l'émulateur n'a pas de vrais jetons Garmin, sa synchro échoue.
 
 <p>
-  <img src="docs/images/onboarding.png" alt="Introduction au premier lancement" width="190">
   <img src="docs/images/accueil.png" alt="Accueil" width="190">
   <img src="docs/images/activites.png" alt="Liste des activités" width="190">
   <img src="docs/images/fiche-fractionne.png" alt="Fiche d'un fractionné et texte pour Strava" width="190">
-</p>
-<p>
-  <img src="docs/images/sante.png" alt="Santé" width="190">
-  <img src="docs/images/charge.png" alt="Charge d'entraînement" width="190">
   <img src="docs/images/profil.png" alt="Profil de coureur" width="190">
-  <img src="docs/images/labels.png" alt="Validation des labels Strava" width="190">
 </p>
 
 ## Fonctionnement
