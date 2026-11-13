@@ -1,6 +1,6 @@
 # Foulée
 
-Application Android de suivi de course à pied à partir de Garmin Connect : séances et analyse des fractionnés, charge d'entraînement, forme du jour, profil de coureur, et une notification à chaque fin de course (distance, allure, forme du jour sur 100, fatigue sur 10). Tout tourne dans le téléphone, sans serveur Foulée. Un serveur Strava personnel est possible mais facultatif (voir plus bas).
+Application Android de suivi de course à pied à partir de Garmin Connect : séances et analyse des fractionnés, charge d'entraînement, forme du jour, profil de coureur, et une notification à chaque fin de course (distance, allure, forme du jour sur 100, fatigue sur 10). Tout tourne dans le téléphone, sans serveur Foulée. On peut aussi brancher un serveur personnel qui communique avec Strava et met à jour tes activités automatiquement (titres, descriptions, labels), c'est facultatif (voir plus bas).
 
 ## Aperçu
 
@@ -32,7 +32,7 @@ Même identité que l'ancienne web app : logo, bleu d'accent `#2a78d6`, cartes a
 
 ## Strava (facultatif)
 
-L'appli ne parle jamais à Strava directement. Elle peut échanger avec un serveur Strava personnel, relié à ton compte (adresse et clé à saisir dans l'onglet Utilisateur, section « Serveur Strava »). Sans adresse, aucune de ces fonctions n'apparaît. Pour mettre en place le serveur, contacter le développeur.
+L'appli ne parle jamais à Strava directement. Tu peux y brancher un serveur personnel, relié à ton compte Strava, qui met à jour tes activités automatiquement : après chaque course, l'appli lui envoie le titre, la description ou le label à appliquer, et le serveur les écrit dans Strava. L'adresse du serveur et sa clé se saisissent dans l'onglet Utilisateur, section « Serveur Strava ». Sans adresse, aucune de ces fonctions n'apparaît. Pour mettre en place le serveur, contacter le développeur.
 
 - **Labels** : « Analyser les labels » compare tes sorties à ce que l'appli détecte (compétition, entraînement, sortie longue) et affiche les propositions. Rien n'est envoyé sans ta validation : tu coches les sorties à modifier, tu peux changer le type proposé ou refuser. Une sortie n'a jamais deux labels.
 - **Titre et description des fractionnés** : l'appli rédige un titre au format « Fractionné - 3 x 1000 m + 4 x 200 m ( r : 1 min 30 + 200 m ) » et une description (allure moyenne de chaque type d'effort, charge d'entraînement, forme du jour, signature « Généré par Foulée »). On peut les copier à la main depuis la fiche, ou laisser l'appli les envoyer pour les prochains fractionnés seulement (jamais l'historique). La spé (5 km, 10 km, semi, marathon) est proposée d'après l'allure, jamais appliquée sans toi. Le type de récup (au temps ou à la distance) est détecté d'après les tours de la montre et se corrige dans une fenêtre dédiée.
