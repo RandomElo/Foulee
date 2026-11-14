@@ -35,15 +35,14 @@ export function Navigateur() {
 
   const pct = progres && progres.total > 0 ? Math.min(100, Math.round((progres.recus / progres.total) * 100)) : 0;
   return (
-    <section className="card" aria-labelledby="h-nav">
-      <h2 className="title" id="h-nav">Navigateur</h2>
-      <p className="sub mb-0 mt-1">Piloté sans fenêtre, seulement pendant une synchronisation de Nolio ou de Strava.</p>
+    <div>
+      <p className="sub m-0">Utilisé sans fenêtre, seulement pendant une synchronisation de Nolio ou de Strava.</p>
       {etat ? (
         <div className="mt-3">
           <p className="m-0 font-bold">
             {etat.choisi ? `Utilisé : ${etat.choisi.nom}` : "Aucun navigateur disponible"}
           </p>
-          {etat.installes.length > 0 ? <p className="sub m-0">Installés : {etat.installes.map((d) => d.nom).join(", ")}</p> : null}
+          {new Set(etat.installes.map((d) => d.nom)).size > 1 ? <p className="sub m-0">Installés : {[...new Set(etat.installes.map((d) => d.nom))].join(", ")}</p> : null}
           {occupe === "telecharge" && progres ? (
             <div className="mt-3">
               <div role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label="Téléchargement"
@@ -55,7 +54,7 @@ export function Navigateur() {
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
             {etat.taille_telechargement !== null && !etat.copie_telechargee && occupe !== "telecharge" ? (
-              <button className="btn" onClick={telecharger}>Télécharger Chrome for Testing ({mo(etat.taille_telechargement)})</button>
+              <button className="btn max-w-full !whitespace-normal text-left" onClick={telecharger}>Télécharger Chrome for Testing ({mo(etat.taille_telechargement)})</button>
             ) : null}
             {occupe === "telecharge" ? <button className="btn" onClick={() => navigateur.annuler()}>Annuler</button> : null}
             <button className="btn btn-main disabled:opacity-50" disabled={!etat.choisi || occupe !== null} onClick={tester}>{occupe === "test" ? "Test…" : "Tester"}</button>
@@ -64,6 +63,6 @@ export function Navigateur() {
         </div>
       ) : <p className="sub mt-3" role="status">Recherche…</p>}
       {message ? <p role={message.ok ? "status" : "alert"} className={`mb-0 mt-3 font-bold ${message.ok ? "" : "text-bad"}`}>{message.texte}</p> : null}
-    </section>
+    </div>
   );
 }
