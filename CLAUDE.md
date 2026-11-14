@@ -19,6 +19,10 @@ Aucun changement de détection sans filet :
 4. Ne pas tester par essais successifs sur le téléphone d'Eloi, ne pas relancer l'appli en boucle.
 5. Les commentaires de séance (SessionRemark) suivent la même règle : seuil exprimé en pourcentage de l'allure, jamais en valeur absolue qui tombe dans le bruit GPS, et vérifié sur toutes les séances.
 
+## Deux versions : mobile (android/) et PC (desktop/, Tauri)
+
+Toute modification de logique commune (détection, charge, santé, anonymisation, formats) se vérifie sur les deux : `scripts/verifier-tout.sh`. Le noyau PC (`desktop/core`) est le portage TS du Kotlin : un changement d'un côté se reporte de l'autre, avec les mêmes cas de test. Plan : `docs/plans/version-pc.md`.
+
 ## Synchronisation
 
 Toute étape qui attend le réseau affiche ce qu'elle attend et depuis quand, a un délai maximum, et peut être passée.

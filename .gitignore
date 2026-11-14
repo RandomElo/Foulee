@@ -48,3 +48,10 @@ reference-web/
 
 # Notes de travail (non versionnées)
 docs/notes/
+
+# Plans de travail (non versionnés)
+docs/plans/
+
+# Version PC (Tauri)
+desktop/**/target/
+desktop/**/src-tauri/gen/
