@@ -39,9 +39,14 @@
 html, body, #root { height: 100%; }
 body { margin: 0; background: var(--c-page); color: var(--c-ink); font-family: system-ui, "Segoe UI", Roboto, sans-serif; line-height: 1.4; }
 button { font: inherit; color: inherit; cursor: pointer; }
+/* Les lignes de séance sont des liens : par défaut un glisser de souris dessus déplace le lien au lieu de sélectionner son texte. */
+a, img { -webkit-user-drag: none; user-drag: none; }
+body { -webkit-user-select: text; user-select: text; }
 
-/* Contour de focus bien visible, bleu, dans tous les thèmes (navigation au clavier). */
-:focus-visible { outline: 3px solid #1D6BFF; outline-offset: 2px; }
+/* Contour de focus bleu, bien visible, dans tous les thèmes : seulement quand on navigue au clavier (pas après un clic de souris),
+   et toujours dans les champs de saisie. `data-input` est posé par main.tsx. */
+:focus-visible { outline: none; }
+html[data-input="keyboard"] :focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid #1D6BFF; outline-offset: 2px; }
 }
 
 @layer components {

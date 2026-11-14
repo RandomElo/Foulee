@@ -45,4 +45,4 @@ Depuis la racine du dépôt, `scripts/verifier-tout.sh` vérifie aussi la versio
 - `app/` : l'interface (React) et la coque Tauri (`src-tauri/`, Rust : base chiffrée, trousseau).
 - `mcp/` : serveur MCP local (à venir).
 
-Thèmes : Néo et Foulée, chacun en clair et en sombre, mode automatique par défaut (réglage dans Profil). Les couleurs sont définies à un seul endroit (`app/src/theme/themes.ts`) et leurs contrastes sont testés.
+Thèmes : Néo (toujours clair, comme sur le téléphone) et Foulée (clair et sombre), mode automatique par défaut (réglage dans Profil). Les couleurs sont définies à un seul endroit (`app/src/theme/themes.ts`) et leurs contrastes sont testés.

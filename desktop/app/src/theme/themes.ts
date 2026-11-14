@@ -1,9 +1,9 @@
-// Les thèmes de Foulée PC : même familles que le mobile (Foulée sobre, Néo), chacune en clair et en sombre.
+// Les thèmes de Foulée PC, comme sur le mobile : Foulée (sobre, clair et sombre) et Néo (toujours clair : un Néo sombre a été essayé, il était laid).
 // Source de vérité des couleurs : les CSS variables sont générées d'ici, et themes.test.ts vérifie les contrastes de chaque thème.
 
 export type Family = "foulee" | "neo";
 export type Mode = "auto" | "light" | "dark";
-export type ThemeId = "foulee-light" | "foulee-dark" | "neo-light" | "neo-dark";
+export type ThemeId = "foulee-light" | "foulee-dark" | "neo-light";
 
 export interface Palette {
   id: ThemeId;
@@ -44,19 +44,13 @@ export const PALETTES: Record<ThemeId, Palette> = {
     accent: "#2F5BD1", good: "#1F7A3E", warn: "#A35A10", bad: "#B02A44", violet: "#5B46C8", track: "#F1E8CC",
     ...flat, band: "#F7D774", onBand: "#222222", shadow: "#2A2A2A", outline: 2.5, offset: 3.5, radius: 14,
   },
-  // Néo sombre : propre à la version PC (le mobile n'a pas encore de Néo sombre). À valider à l'œil par Eloi.
-  "neo-dark": {
-    id: "neo-dark", family: "neo", dark: true,
-    page: "#15140F", card: "#24221A", line: "#E9E1C9", ink: "#F4EEDC", muted: "#BDB59F",
-    accent: "#8FB0FF", good: "#7BD99A", warn: "#F0B15A", bad: "#FF8FA3", violet: "#B7A8FF", track: "#38352A",
-    ...flat, band: "#F7D774", onBand: "#222222", shadow: "#000000", outline: 2.5, offset: 3.5, radius: 14,
-  },
 };
 
-/** Le thème effectif selon la famille, le mode choisi et le réglage du système. */
+/** Le thème effectif selon la famille, le mode choisi et le réglage du système. Néo n'a pas de version sombre : le mode ne s'applique qu'à Foulée. */
 export function resolveTheme(family: Family, mode: Mode, systemDark: boolean): ThemeId {
+  if (family === "neo") return "neo-light";
   const dark = mode === "dark" || (mode === "auto" && systemDark);
-  return `${family}-${dark ? "dark" : "light"}` as ThemeId;
+  return dark ? "foulee-dark" : "foulee-light";
 }
 
 /** Les variables CSS d'un thème (le CSS les lit, aucun composant ne code de couleur en dur). */

@@ -26,8 +26,8 @@ export function Reglages() {
       <section className="card" aria-labelledby="h-apparence">
         <h2 className="title" id="h-apparence">Apparence</h2>
         <Group<Family> label="Style" value={family} options={[["neo", "Néo"], ["foulee", "Foulée"]]} onPick={(v) => set({ family: v })} />
-        <Group<Mode> label="Mode" value={mode} options={[["auto", "Automatique"], ["light", "Clair"], ["dark", "Sombre"]]} onPick={(v) => set({ mode: v })} />
-        <p className="sub mb-0 mt-3">Automatique suit le réglage de ton système.</p>
+        <Group<Mode> label="Mode" value={family === "neo" ? ("" as Mode) : mode} options={[["auto", "Automatique"], ["light", "Clair"], ["dark", "Sombre"]]} onPick={(v) => set({ mode: v })} disabled={family === "neo"} />
+        <p className="sub mb-0 mt-3">{family === "neo" ? "Néo est toujours clair, comme sur ton téléphone." : "Automatique suit le réglage de ton système."}</p>
       </section>
       <section className="card" aria-labelledby="h-profil">
         <h2 className="title" id="h-profil">Profil</h2>

@@ -45,10 +45,15 @@ describe("contrastes de chaque thème (WCAG AA)", () => {
 
 describe("choix du thème", () => {
   it("auto suit le système, clair et sombre l'ignorent", () => {
-    expect(resolveTheme("neo", "auto", true)).toBe("neo-dark");
-    expect(resolveTheme("neo", "auto", false)).toBe("neo-light");
+    expect(resolveTheme("foulee", "auto", true)).toBe("foulee-dark");
+    expect(resolveTheme("foulee", "auto", false)).toBe("foulee-light");
     expect(resolveTheme("foulee", "dark", false)).toBe("foulee-dark");
     expect(resolveTheme("foulee", "light", true)).toBe("foulee-light");
+  });
+
+  it("Néo reste clair quel que soit le mode ou le système", () => {
+    for (const mode of ["auto", "light", "dark"] as const) for (const sys of [true, false]) expect(resolveTheme("neo", mode, sys)).toBe("neo-light");
+    expect(Object.keys(PALETTES).sort()).toEqual(["foulee-dark", "foulee-light", "neo-light"]);
   });
 
   it("chaque thème fournit toutes les variables, sans valeur vide", () => {
