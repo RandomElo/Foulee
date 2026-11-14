@@ -46,3 +46,27 @@ Depuis la racine du dépôt, `scripts/verifier-tout.sh` vérifie aussi la versio
 - `mcp/` : serveur MCP local (à venir).
 
 Thèmes : Néo (toujours clair, comme sur le téléphone) et Foulée (clair et sombre), mode automatique par défaut (réglage dans Profil). Les couleurs sont définies à un seul endroit (`app/src/theme/themes.ts`) et leurs contrastes sont testés.
+
+## Serveur MCP local (lecture seule)
+
+L'application contient un serveur MCP (stdio) qui laisse un assistant (Claude, Codex, Copilot) lire tes séances et ton calendrier Nolio. Il ne fait rien d'autre :
+la base est ouverte en lecture seule avec la clé du trousseau, aucun outil n'écrit, et les adresses e-mail, numéros de téléphone et liens sont masqués dans les noms et commentaires.
+
+Outils : `seances_recentes` (derniers jours), `seance` (une séance avec ses tours et ton ressenti), `nolio_calendrier` (séances prévues et compétitions à venir ; `allure_plafond`
+vaut 1 quand l'allure prévue est une limite à ne pas dépasser, comme sur un footing, et non une cible).
+
+Le programme est l'application elle-même avec l'option `--mcp` (ouvre Foulée une première fois pour créer la base et la clé).
+
+Claude Code :
+
+```bash
+claude mcp add foulee -- ~/Applications/Foulee.AppImage --mcp
+```
+
+Autres clients (fichier de configuration MCP du client) :
+
+```json
+{ "mcpServers": { "foulee": { "command": "/chemin/vers/Foulee.AppImage", "args": ["--mcp"] } } }
+```
+
+Sous Windows, une version installée sans console n'écrit pas sur la sortie standard : le serveur MCP y reste à vérifier.

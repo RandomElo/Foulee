@@ -1,5 +1,6 @@
 mod base;
 mod maj;
+mod mcp;
 mod navigateur;
 mod nolio;
 mod secrets;
@@ -282,6 +283,11 @@ fn maj_relancer(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn db_infos(b: State<'_, Base>) -> Result<(String, String), String> {
     base::infos(&*verrou(b.inner())?)
+}
+
+/// `Foulee --mcp` : serveur MCP en lecture seule sur stdin/stdout, sans fenêtre ni Tauri. Rend le code de sortie du processus.
+pub fn lancer_mcp() -> i32 {
+    mcp::lancer()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

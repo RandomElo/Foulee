@@ -21,6 +21,16 @@ pub fn cle_base() -> Result<String, String> {
     }
 }
 
+/// Relit la clé de la base SANS en créer une : pour le serveur MCP, qui ne doit jamais fabriquer une clé ni une base vide.
+pub fn cle_existante() -> Result<String, String> {
+    let entree = Entry::new(SERVICE, "cle-base").map_err(|e| format!("trousseau indisponible : {e}"))?;
+    match entree.get_password() {
+        Ok(cle) => Ok(cle),
+        Err(keyring::Error::NoEntry) => Err("aucune clé de base : ouvre Foulée une première fois".into()),
+        Err(e) => Err(format!("lecture du trousseau : {e}")),
+    }
+}
+
 /// Les seuls secrets que l'interface peut écrire. Il n'existe volontairement aucune commande pour les relire :
 /// le webview ne voit jamais une valeur, seul le code Rust (futurs clients Garmin et Nolio) les lit.
 pub const NOMS: &[&str] = &["garmin-email", "garmin-motdepasse", "nolio-cle"];

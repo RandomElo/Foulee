@@ -104,6 +104,17 @@ pub fn ouvrir(chemin: &Path, cle_hex: &str) -> Result<Connection, String> {
     Ok(conn)
 }
 
+/// Ouvre la base chiffrée en lecture seule, sans jouer les migrations (le serveur MCP ne doit jamais rien écrire, ni créer un fichier).
+pub fn ouvrir_lecture(chemin: &Path, cle_hex: &str) -> Result<Connection, String> {
+    if cle_hex.len() != 64 || !cle_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err("clé de base invalide".into());
+    }
+    let conn = Connection::open_with_flags(chemin, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| format!("ouverture de la base : {e}"))?;
+    conn.pragma_update(None, "key", format!("x'{cle_hex}'")).map_err(|e| format!("clé refusée : {e}"))?;
+    conn.query_row("SELECT count(*) FROM sqlite_master", [], |r| r.get::<_, i64>(0)).map_err(|_| "base illisible : mauvaise clé ou fichier corrompu".to_string())?;
+    Ok(conn)
+}
+
 fn migrer(conn: &Connection) -> Result<(), String> {
     let actuelle: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
