@@ -1,13 +1,14 @@
 import { useMemo } from "react";
-import { Link } from "react-router-dom";
-import { groupWeeks } from "@foulee/core";
+import { Link, useSearchParams } from "react-router-dom";
+import { categoryOf, groupWeeks, sportLabel } from "@foulee/core";
 import { useData } from "../DataProvider";
 import { Dot, Empty } from "../components/ui";
-import { fmtDayMonth, fmtDayShort, fmtKm, fmtKmValue } from "../lib/format";
+import { fmtDayMonth, fmtDayShort, fmtKmOuHeure, fmtKmValue } from "../lib/format";
 import { doubtsOf } from "../lib/stats";
 import type { Seance } from "../repo";
 
-export const titleOf = (s: Seance): string => s.intervalTitle ?? (s.name || "Séance");
+/** Le titre d'une séance : le fractionné détecté, sinon pour un autre sport le vrai sport (Vélo, Natation…), sinon le nom donné par la montre. */
+export const titleOf = (s: Seance): string => s.intervalTitle ?? ((categoryOf(s) === "other" ? sportLabel(s.type) : null) ?? (s.name || "Séance"));
 
 export function SeanceRow({ s, current = false }: { s: Seance; current?: boolean }) {
   const doubt = doubtsOf(s).length > 0;
@@ -18,7 +19,7 @@ export function SeanceRow({ s, current = false }: { s: Seance; current?: boolean
       <span className="break-words font-bold">{titleOf(s)}</span>
       <span className="col-start-2 flex flex-wrap items-center gap-3">
         <span className={`text-sm ${current ? "text-fill-ink" : "text-muted"}`}>{fmtDayShort(s.startLocal)}</span>
-        <b>{fmtKm(s.distance)}</b>
+        <b>{fmtKmOuHeure(s.distance, s.startLocal)}</b>
         {doubt ? <span className="pill">À vérifier</span> : null}
       </span>
     </Link>
@@ -27,17 +28,30 @@ export function SeanceRow({ s, current = false }: { s: Seance; current?: boolean
 
 export function Activites() {
   const { data, loading } = useData();
-  const weeks = useMemo(() => groupWeeks(data.seances), [data.seances]);
+  const [params] = useSearchParams();
+  const semaine = /^\d{4}-\d{2}-\d{2}$/.test(params.get("semaine") ?? "") ? params.get("semaine") : null;
+  const toutes = useMemo(() => groupWeeks(data.seances), [data.seances]);
+  const weeks = semaine ? toutes.filter((w) => w.start === semaine) : toutes;
   if (loading) return <p className="sub" role="status">Chargement…</p>;
-  if (weeks.length === 0) return <Empty>Aucune séance pour l'instant.</Empty>;
+  if (toutes.length === 0) return <Empty>Aucune séance pour l'instant.</Empty>;
   return (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,360px),1fr))] items-stretch gap-[18px]">
-      {weeks.map((w) => (
-        <section key={w.start} className="card" aria-label={`Semaine du ${fmtDayMonth(w.start)}`}>
-          <div className="mb-1.5 flex items-baseline justify-between"><h2 className="title">Semaine du {fmtDayMonth(w.start)}</h2><b>{fmtKmValue(w.km)} km</b></div>
-          {w.sessions.map((s) => <SeanceRow key={s.id} s={s} />)}
-        </section>
-      ))}
-    </div>
+    <>
+      {semaine ? (
+        <div className="mb-[18px] flex flex-wrap items-center gap-3">
+          <Link className="btn btn-main" to="/activites">← Toutes les semaines</Link>
+          <b>Semaine du {fmtDayMonth(semaine)}</b>
+        </div>
+      ) : null}
+      {weeks.length === 0 ? <Empty>Aucune séance cette semaine-là.</Empty> : (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,360px),1fr))] items-stretch gap-[18px]">
+          {weeks.map((w) => (
+            <section key={w.start} className="card" aria-label={`Semaine du ${fmtDayMonth(w.start)}`}>
+              <div className="mb-1.5 flex items-baseline justify-between"><h2 className="title">Semaine du {fmtDayMonth(w.start)}</h2><b>{fmtKmValue(w.km)} km</b></div>
+              {w.sessions.map((s) => <SeanceRow key={s.id} s={s} />)}
+            </section>
+          ))}
+        </div>
+      )}
+    </>
   );
 }

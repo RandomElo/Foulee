@@ -1,4 +1,6 @@
 mod base;
+mod garmin;
+mod garmin_api;
 mod maj;
 mod mcp;
 mod navigateur;
@@ -139,23 +141,69 @@ async fn navigateur_tester(app: AppHandle) -> Result<String, String> {
 // ---------- Sources lues par le navigateur piloté (Nolio, Strava) : lecture seule ----------
 
 static NAV_OCCUPE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// Qui utilise le navigateur en ce moment (pour dire à celui qui attend de quoi il s'agit).
+static NAV_PAR: std::sync::Mutex<&'static str> = std::sync::Mutex::new("");
 static NAV_ANNULER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Une seule tâche du navigateur piloté à la fois (connexion ou synchronisation, Nolio ou Strava) : simple, et jamais deux fenêtres ouvertes.
 struct OccupeNavigateur;
 impl OccupeNavigateur {
-    fn prendre() -> Result<Self, String> {
+    /// Prend le navigateur, en attendant son tour (10 minutes au plus) quand une autre lecture ou connexion utilise le navigateur :
+    /// la demande passe juste après. À appeler hors du fil de l'interface. Une annulation demandée pendant l'attente l'arrête.
+    fn attendre(app: &AppHandle, nom: &'static str) -> Result<Self, String> {
         use std::sync::atomic::Ordering;
-        if NAV_OCCUPE.swap(true, Ordering::SeqCst) {
-            return Err("Le navigateur de l'appli est déjà en cours d'utilisation".into());
+        let debut = std::time::Instant::now();
+        let mut signale = false;
+        let resultat = loop {
+            if !NAV_OCCUPE.swap(true, Ordering::SeqCst) {
+                NAV_ANNULER.store(false, Ordering::SeqCst);
+                *NAV_PAR.lock().unwrap_or_else(|e| e.into_inner()) = nom;
+                break Ok(OccupeNavigateur);
+            }
+            if !signale {
+                // L'interface le dit seulement quand c'est vrai : « Nolio utilise le navigateur, Strava démarre juste après ».
+                let par = *NAV_PAR.lock().unwrap_or_else(|e| e.into_inner());
+                let _ = app.emit("navigateur-attente", Some(par));
+                signale = true;
+            }
+            if NAV_ANNULER.load(Ordering::SeqCst) {
+                break Err("annulé avant le début".to_string());
+            }
+            if debut.elapsed() > std::time::Duration::from_secs(600) {
+                break Err("le navigateur est resté occupé trop longtemps : réessaie".to_string());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        };
+        if signale {
+            let _ = app.emit("navigateur-attente", None::<&str>);
         }
-        NAV_ANNULER.store(false, Ordering::SeqCst);
-        Ok(OccupeNavigateur)
+        resultat
     }
 }
 impl Drop for OccupeNavigateur {
     fn drop(&mut self) {
         NAV_OCCUPE.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+static GARMIN_OCCUPE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static GARMIN_ANNULER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Garmin ne passe pas par le navigateur : sa lecture a son propre verrou (une seule à la fois) et n'empêche ni Strava ni Nolio.
+struct OccupeGarmin;
+impl OccupeGarmin {
+    fn prendre() -> Result<Self, String> {
+        use std::sync::atomic::Ordering;
+        if GARMIN_OCCUPE.swap(true, Ordering::SeqCst) {
+            return Err("Garmin est déjà en cours de lecture".into());
+        }
+        GARMIN_ANNULER.store(false, Ordering::SeqCst);
+        Ok(OccupeGarmin)
+    }
+}
+impl Drop for OccupeGarmin {
+    fn drop(&mut self) {
+        GARMIN_OCCUPE.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -168,14 +216,16 @@ fn navigateur_choisi(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(std::path::PathBuf::from(nav.chemin))
 }
 
-/// Ouvre une fenêtre sur Nolio : l'utilisateur s'y connecte lui-même (rien n'est rempli ni stocké par l'appli). Rend la main une fois connecté.
+/// Connecte Nolio avec l'e-mail et le mot de passe saisis dans l'appli, dans le navigateur sans fenêtre. Rien n'est gardé : seule la session du profil reste.
 #[tauri::command]
-async fn nolio_connecter(app: AppHandle) -> Result<(), String> {
-    let occupe = OccupeNavigateur::prendre()?;
+async fn nolio_connecter(app: AppHandle, email: String, mot_de_passe: String) -> Result<(), String> {
+    if email.trim().is_empty() || mot_de_passe.is_empty() {
+        return Err("saisis l'e-mail et le mot de passe de ton compte Nolio".into());
+    }
     let (exe, profil) = (navigateur_choisi(&app)?, profil_nolio(&app)?);
     tauri::async_runtime::spawn_blocking(move || {
-        let _occupe = occupe;
-        nolio::connecter(&exe, &profil, nolio::ORIGINE, &NAV_ANNULER, std::time::Duration::from_secs(600))
+        let _occupe = OccupeNavigateur::attendre(&app, "Nolio")?;
+        nolio::connecter(&exe, &profil, nolio::ORIGINE, email.trim(), &mot_de_passe, &NAV_ANNULER, std::time::Duration::from_secs(60))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -184,11 +234,10 @@ async fn nolio_connecter(app: AppHandle) -> Result<(), String> {
 /// Lit le calendrier Nolio (35 jours passés, 200 à venir ; commentaires et structures jusqu'à 21 jours à venir) sans fenêtre.
 #[tauri::command]
 async fn nolio_synchroniser(app: AppHandle) -> Result<nolio::Bilan, String> {
-    let occupe = OccupeNavigateur::prendre()?;
     let (exe, profil) = (navigateur_choisi(&app)?, profil_nolio(&app)?);
     let a = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let _occupe = occupe;
+        let _occupe = OccupeNavigateur::attendre(&a, "Nolio")?;
         let aujourdhui = nolio::aujourd_hui();
         let (debut, fin, fiches) = (nolio::decaler(&aujourdhui, -35)?, nolio::decaler(&aujourdhui, 200)?, nolio::decaler(&aujourdhui, 21)?);
         let base = a.state::<Base>();
@@ -215,27 +264,79 @@ fn profil_strava(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(dossier_app(app)?.join("navigateur").join("profils").join("strava"))
 }
 
-/// Ouvre une fenêtre sur Strava : l'utilisateur s'y connecte lui-même (rien n'est rempli ni stocké par l'appli). Rend la main une fois connecté.
+/// Connexion Strava commencée : le navigateur sans fenêtre attend le code reçu par e-mail. Garde aussi le verrou du navigateur jusqu'à la fin ou l'abandon.
+static STRAVA_EN_ATTENTE: std::sync::Mutex<Option<(strava::Connexion, OccupeNavigateur)>> = std::sync::Mutex::new(None);
+
+/// Connexion à Strava par e-mail et code à usage unique (Google refuse les navigateurs pilotés, donc pas de connexion Google). Saisit l'e-mail dans le
+/// navigateur sans fenêtre et demande le code. Rend « ok » (session déjà valide) ou « code » : le code arrive par e-mail, à saisir avec `strava_code`.
 #[tauri::command]
-async fn strava_connecter(app: AppHandle) -> Result<(), String> {
-    let occupe = OccupeNavigateur::prendre()?;
+async fn strava_connecter(app: AppHandle, email: String) -> Result<String, String> {
+    if email.trim().is_empty() || !email.contains('@') {
+        return Err("saisis l'adresse e-mail de ton compte Strava".into());
+    }
+    // Une connexion déjà en attente est abandonnée avant d'en commencer une autre.
+    strava_abandonner();
     let (exe, profil) = (navigateur_choisi(&app)?, profil_strava(&app)?);
     tauri::async_runtime::spawn_blocking(move || {
-        let _occupe = occupe;
-        strava::connecter(&exe, &profil, strava::ORIGINE, &NAV_ANNULER, std::time::Duration::from_secs(600))
+        let occupe = OccupeNavigateur::attendre(&app, "Strava")?;
+        let (connexion, etape) = strava::demarrer_connexion(&exe, &profil, strava::ORIGINE, email.trim(), &NAV_ANNULER, std::time::Duration::from_secs(60))?;
+        match (connexion, etape) {
+            (Some(c), strava::Etape::CodeRequis) => {
+                *STRAVA_EN_ATTENTE.lock().map_err(|_| "état de connexion verrouillé".to_string())? = Some((c, occupe));
+                Ok("code".to_string())
+            }
+            _ => Ok("ok".to_string()),
+        }
     })
     .await
     .map_err(|e| e.to_string())?
 }
 
+/// Termine la connexion Strava avec le code reçu par e-mail. Un code refusé laisse la connexion en attente : on peut en ressaisir un.
+#[tauri::command]
+async fn strava_code(code: String) -> Result<(), String> {
+    let en_attente = STRAVA_EN_ATTENTE.lock().map_err(|_| "état de connexion verrouillé".to_string())?.take();
+    let Some((mut connexion, occupe)) = en_attente else {
+        return Err("aucune connexion Strava en cours : recommence".into());
+    };
+    NAV_ANNULER.store(false, std::sync::atomic::Ordering::SeqCst);
+    tauri::async_runtime::spawn_blocking(move || match strava::envoyer_code(&mut connexion, &code, &NAV_ANNULER, std::time::Duration::from_secs(45)) {
+        Ok(()) => {
+            connexion.fermer();
+            drop(occupe);
+            Ok(())
+        }
+        Err(e) => {
+            if e == "connexion annulée" {
+                connexion.fermer();
+                drop(occupe);
+            } else if let Ok(mut g) = STRAVA_EN_ATTENTE.lock() {
+                *g = Some((connexion, occupe));
+            }
+            Err(e)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Abandonne une connexion Strava en attente du code : ferme le navigateur et libère le verrou.
+#[tauri::command]
+fn strava_abandonner() {
+    let pris = STRAVA_EN_ATTENTE.lock().ok().and_then(|mut g| g.take());
+    if let Some((c, occupe)) = pris {
+        c.fermer();
+        drop(occupe);
+    }
+}
+
 /// Lit la liste des activités Strava sans fenêtre, une page toutes les 3 secondes. `complet` : toute la liste ; sinon seulement les pages récentes.
 #[tauri::command]
 async fn strava_synchroniser(app: AppHandle, complet: bool) -> Result<strava::Bilan, String> {
-    let occupe = OccupeNavigateur::prendre()?;
     let (exe, profil) = (navigateur_choisi(&app)?, profil_strava(&app)?);
     let a = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let _occupe = occupe;
+        let _occupe = OccupeNavigateur::attendre(&a, "Strava")?;
         let aujourdhui = nolio::aujourd_hui();
         let base = a.state::<Base>();
         let evenements = a.clone();
@@ -254,6 +355,118 @@ async fn strava_synchroniser(app: AppHandle, complet: bool) -> Result<strava::Bi
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ProgressionGarmin {
+    etape: String,
+    fait: u64,
+    total: u64,
+}
+
+/// La connexion en cours quand Garmin a demandé un code de vérification : le client garde ses cookies jusqu'à la saisie du code.
+static GARMIN_EN_ATTENTE: Mutex<Option<garmin_api::Client>> = Mutex::new(None);
+
+fn jetons_garmin() -> Result<Option<garmin_api::Jetons>, String> {
+    Ok(match (secrets::lire("garmin-oauth1-token")?, secrets::lire("garmin-oauth1-secret")?) {
+        (Some(t), Some(s)) => Some(garmin_api::Jetons { oauth1_token: t, oauth1_secret: s }),
+        _ => None,
+    })
+}
+
+fn garder_jetons_garmin(client: &garmin_api::Client) -> Result<(), String> {
+    let j = client.jetons().ok_or("Garmin n'a pas donné de jeton")?;
+    secrets::definir("garmin-oauth1-token", &j.oauth1_token)?;
+    secrets::definir("garmin-oauth1-secret", &j.oauth1_secret)
+}
+
+/// Connexion à Garmin avec l'e-mail et le mot de passe saisis dans l'appli (jamais gardés : seul le jeton va dans le trousseau).
+/// Rend « ok », ou « code:email » (ou sms…) quand Garmin demande un code de vérification : l'appelant le saisit puis appelle `garmin_code`.
+#[tauri::command]
+async fn garmin_connecter(email: String, mot_de_passe: String) -> Result<String, String> {
+    let occupe = OccupeGarmin::prendre()?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let _occupe = occupe;
+        let mut client = garmin_api::Client::nouveau(garmin_api::Hotes::reels(), None)?;
+        match client.connecter(email.trim(), &mot_de_passe)? {
+            garmin_api::Connexion::Faite => {
+                garder_jetons_garmin(&client)?;
+                Ok("ok".to_string())
+            }
+            garmin_api::Connexion::CodeRequis(methode) => {
+                *GARMIN_EN_ATTENTE.lock().map_err(|_| "état de connexion verrouillé".to_string())? = Some(client);
+                Ok(format!("code:{methode}"))
+            }
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Termine la connexion avec le code de vérification envoyé par Garmin.
+#[tauri::command]
+async fn garmin_code(code: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut client = GARMIN_EN_ATTENTE.lock().map_err(|_| "état de connexion verrouillé".to_string())?.take().ok_or("Aucune connexion en attente : recommence depuis le début")?;
+        match client.verifier_code(code.trim()) {
+            Ok(()) => garder_jetons_garmin(&client),
+            Err(garmin_api::ErreurGarmin::Auth(m)) => {
+                // Code refusé : on garde la connexion en attente pour permettre une nouvelle saisie.
+                *GARMIN_EN_ATTENTE.lock().map_err(|_| "état de connexion verrouillé".to_string())? = Some(client);
+                Err(m)
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn garmin_connecte() -> Result<bool, String> {
+    Ok(jetons_garmin()?.is_some())
+}
+
+/// Oublie la connexion Garmin : efface le jeton du trousseau.
+#[tauri::command]
+fn garmin_deconnecter() -> Result<(), String> {
+    *GARMIN_EN_ATTENTE.lock().map_err(|_| "état de connexion verrouillé".to_string())? = None;
+    secrets::supprimer("garmin-oauth1-token")?;
+    secrets::supprimer("garmin-oauth1-secret")
+}
+
+/// Lit Garmin avec le jeton du trousseau : profil (prénom), activités, tours, santé du jour. `complet` : tout l'historique ; sinon les 20 dernières activités.
+#[tauri::command]
+async fn garmin_synchroniser(app: AppHandle, complet: bool) -> Result<garmin::Bilan, String> {
+    let occupe = OccupeGarmin::prendre()?;
+    let jetons = jetons_garmin()?.ok_or("Garmin n'est pas connecté : connecte-toi depuis Profil")?;
+    let a = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _occupe = occupe;
+        let mut client = garmin_api::Client::nouveau(garmin_api::Hotes::reels(), Some(jetons))?;
+        let base = a.state::<Base>();
+        let evenements = a.clone();
+        garmin::synchroniser(
+            &mut client,
+            complet,
+            std::time::Duration::from_millis(150),
+            &GARMIN_ANNULER,
+            |f| {
+                let g = verrou(base.inner())?;
+                f(&g)
+            },
+            |etape, fait, total| {
+                let _ = evenements.emit("garmin-progression", ProgressionGarmin { etape: etape.to_string(), fait: fait as u64, total: total as u64 });
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn garmin_annuler() {
+    GARMIN_ANNULER.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -314,7 +527,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos, secret_definir, secret_existe, secret_supprimer, navigateur_etat, navigateur_telecharger, navigateur_annuler, navigateur_tester, nolio_connecter, nolio_synchroniser, nolio_annuler, strava_connecter, strava_synchroniser, maj_en_attente, maj_relancer])
+        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos, secret_definir, secret_existe, secret_supprimer, navigateur_etat, navigateur_telecharger, navigateur_annuler, navigateur_tester, nolio_connecter, nolio_synchroniser, nolio_annuler, strava_connecter, strava_code, strava_abandonner, strava_synchroniser, garmin_connecter, garmin_code, garmin_connecte, garmin_deconnecter, garmin_synchroniser, garmin_annuler, maj_en_attente, maj_relancer])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Foulée");
 }

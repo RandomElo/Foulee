@@ -6,6 +6,7 @@ import { relancer, useMiseAJour } from "./maj";
 import { Accueil } from "./screens/Accueil";
 import { Activites } from "./screens/Activites";
 import { Fiche } from "./screens/Fiche";
+import { Onboarding } from "./screens/Onboarding";
 import { Reglages } from "./screens/Reglages";
 
 /** Le logo de l'appli (carré arrondi, tracé en M), repris de android/.../logo_neo.xml ; les couleurs suivent le thème. */
@@ -30,7 +31,7 @@ function Forme() {
 }
 
 export default function App() {
-  const { prenom, data } = useData();
+  const { prenom, data, onboarde } = useData();
   const majDispo = useMiseAJour();
   const demo = data.seances.length > 0 && data.seances.every((s) => s.source === "demo");
   const tabs = [
@@ -39,6 +40,8 @@ export default function App() {
     { to: "/forme", label: "Forme", icon: HeartPulse, end: false },
     { to: "/reglages", label: prenom || "Profil", icon: CircleUser, end: false },
   ];
+  if (onboarde === null) return <div className="p-5" role="status">Chargement…</div>;
+  if (!onboarde) return <main className="flex min-h-full flex-col"><Onboarding /></main>;
   return (
     <div className="flex min-h-full flex-col">
       <header className="band flex flex-wrap items-center gap-1.5 px-4 py-2.5">

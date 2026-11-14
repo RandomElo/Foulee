@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Trophy } from "lucide-react";
 import { dayOf, isRun, kmPerWeek, loadZoneOf, LOAD_ZONES, addDays, weekStart } from "@foulee/core";
 import { useData } from "../DataProvider";
@@ -13,11 +13,15 @@ import { firstDoubt, intervalFacts, lastInterval } from "../lib/stats";
 import type { NolioEvt } from "../repo/types";
 import { repo } from "../repo";
 
+/** Couleur de la jauge selon la zone : froid (peu chargé) vers chaud (surcharge). Les segments remplis ont tous cette couleur. */
+const ZONE_COULEURS = ["var(--c-sky)", "var(--c-sky)", "var(--c-mint)", "var(--c-yellow)", "var(--c-pink)"];
+
 const rpeClass = (n: number) => (n <= 3 ? "bg-mint" : n <= 5 ? "bg-yellow" : n <= 7 ? "bg-orange" : "bg-pink");
 
 export function Accueil() {
   const { data, analysis, today, prenom, loading, error, reload } = useData();
   const [ressenti, setRessenti] = useState(false);
+  const navigate = useNavigate();
   const [prevu, setPrevu] = useState<NolioEvt | null>(null);
 
   if (loading) return <p className="sub" role="status">Chargement…</p>;
@@ -91,8 +95,8 @@ export function Accueil() {
         <section className="card card-violet" aria-labelledby="h-charge">
           <h2 className="title" id="h-charge">Charge globale</h2>
           <div className="my-2 text-[40px] font-black leading-tight" style={{ color: "var(--stat-violet-num)" }}>{total !== null ? fmtNum(total) : "–"} <small className="text-base font-semibold">/ 20</small></div>
-          <div className="zones mb-1.5" role="img" aria-label={zone ? `Zone : ${zone.label}` : "Zone inconnue"}>
-            {LOAD_ZONES.map((z) => <i key={z.index} className={zone ? (z.index < zone.index ? "on" : z.index === zone.index ? "cur" : "") : ""} />)}
+          <div className="zones mb-1.5" role="img" aria-label={zone ? `Zone : ${zone.label}` : "Zone inconnue"} style={{ "--zc": ZONE_COULEURS[zone?.index ?? 0] } as React.CSSProperties}>
+            {LOAD_ZONES.map((z) => <i key={z.index} className={zone && z.index <= zone.index ? "fill" : ""} />)}
           </div>
           <div className="sub">{zone ? zone.label : "Pas assez d'historique"}{delta !== null && analysis.previousWeek !== null ? ` · ${delta >= 0 ? "↗ +" : "↘ −"}${fmtNum(Math.abs(delta))} vs ${fmtNum(analysis.previousWeek)} les 3 semaines d'avant` : ""}</div>
         </section>
@@ -141,7 +145,9 @@ export function Accueil() {
           </section>
         ) : null}
 
-        <section className="card min-[700px]:col-span-2" aria-labelledby="h-last">
+        {/* Toute la carte ouvre la séance, sauf les boutons et le texte qu'on sélectionne */}
+        <section className={`card min-[700px]:col-span-2 ${last ? "cursor-pointer" : ""}`} aria-labelledby="h-last"
+          onClick={last ? () => { if (!window.getSelection()?.toString()) navigate(`/activites/${last.id}`); } : undefined}>
           <h2 className="title" id="h-last">Dernier fractionné</h2>
           {last ? (
             <>
@@ -153,8 +159,8 @@ export function Accueil() {
                 <div><b className="block whitespace-nowrap text-xl font-black">{analysis.globalAfter(last) ? `${fmtNum(analysis.globalAfter(last)?.total ?? 0)} / 20` : "–"}</b><span className="sub">charge globale</span></div>
               </div>
               <div className="flex flex-wrap gap-2.5">
-                <Link className="btn" to={`/activites/${last.id}`}>Voir la séance</Link>
-                <button className="btn btn-main" onClick={() => setRessenti(true)}>{lastFeeling?.rpe ? `RPE ${lastFeeling.rpe} · modifier` : "Ressenti"}</button>
+                <Link className="btn" to={`/activites/${last.id}`} onClick={(e) => e.stopPropagation()}>Voir la séance</Link>
+                <button className="btn btn-main" onClick={(e) => { e.stopPropagation(); setRessenti(true); }}>{lastFeeling?.rpe ? `RPE ${lastFeeling.rpe} · modifier` : "Ressenti"}</button>
               </div>
             </>
           ) : <p className="sub mt-2">Pas encore de fractionné détecté.</p>}
@@ -162,7 +168,7 @@ export function Accueil() {
 
         <section className="card min-[700px]:col-span-2" aria-labelledby="h-km">
           <h2 className="title" id="h-km">Km par semaine</h2>
-          <div className="mt-2"><KmChart weeks={weeks} /></div>
+          <div className="mt-2"><KmChart weeks={weeks} onPick={(start) => navigate(`/activites?semaine=${start}`)} /></div>
           <div className="sub mt-2">Pointillés : moyenne des 4 semaines d'avant. Semaine en cours non terminée.</div>
         </section>
       </div>

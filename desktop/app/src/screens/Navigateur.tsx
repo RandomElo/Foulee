@@ -53,7 +53,7 @@ export function Navigateur() {
             </div>
           ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
-            {etat.taille_telechargement !== null && !etat.copie_telechargee && occupe !== "telecharge" ? (
+            {etat.choisi === null && etat.taille_telechargement !== null && occupe !== "telecharge" ? (
               <button className="btn max-w-full !whitespace-normal text-left" onClick={telecharger}>Télécharger Chrome for Testing ({mo(etat.taille_telechargement)})</button>
             ) : null}
             {occupe === "telecharge" ? <button className="btn" onClick={() => navigateur.annuler()}>Annuler</button> : null}

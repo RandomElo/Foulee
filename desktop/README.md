@@ -23,12 +23,18 @@ npx vite --port 1420
 
 puis ouvre http://localhost:1420.
 
-## Identifiants Garmin et Nolio
+## Connexions : Garmin, Strava, Nolio
 
-Deux façons, jamais dans le code ni dans un fichier suivi par git :
+Aucun mot de passe n'est gardé.
 
-1. Dans l'appli : Profil, carte « Sources ». Les valeurs partent directement dans le trousseau du système ; l'interface ne peut pas les relire.
-2. En développement : copie `desktop/.env.example` en `desktop/.env` (ignoré par git), remplis les valeurs. Au lancement d'un build de développement, elles sont rangées dans le trousseau si elles n'y sont pas déjà. Un build de production ne lit aucun `.env`.
+- **Garmin** (source principale : séances, tours de la montre, santé, prénom) : tu saisis ton e-mail et ton mot de passe dans Profil, comme dans l'appli du téléphone, et le code de
+  vérification si Garmin en demande un. L'appli ouvre la session sans navigateur (même flux que l'appli Android : connexion SSO mobile, jeton OAuth1, jeton OAuth2). Le mot de passe sert une fois ;
+  seul le jeton OAuth1 est rangé dans le trousseau du système (« Déconnecter » l'efface).
+- **Strava** (optionnel : nom, description et labels) et **Nolio** (optionnel : séances prévues par ton coach, objectifs) n'ont pas d'API accessible : tu te connectes dans l'appli (Nolio : e-mail et mot de passe ; Strava : e-mail puis code reçu par e-mail, car Google refuse
+  les navigateurs pilotés), le navigateur travaille sans fenêtre, aucun identifiant n'est gardé, puis l'appli lit tes données avec le navigateur (Chrome, Edge ou Chromium installé, sinon Chrome for Testing téléchargé depuis Profil, Avancé),
+  en lecture seule, à faible cadence. La session reste dans un profil du navigateur dédié à l'appli, jamais dans ton profil de tous les jours.
+
+Les adresses internes de ces trois services ne sont pas documentées : elles ont été repérées sur une vraie session et peuvent changer, auquel cas l'appli le dit au lieu de deviner.
 
 ## Vérifier
 

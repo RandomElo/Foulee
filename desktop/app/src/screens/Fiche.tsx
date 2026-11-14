@@ -1,6 +1,7 @@
+import { Chevron } from "../components/Chevron";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { addDays, categoryLabel, categoryOf, describeLaps, groupWeeks, weekStart, dayOf } from "@foulee/core";
+import { addDays, categoryLabel, categoryOf, describeLaps, groupWeeks, sportLabel, weekStart, dayOf } from "@foulee/core";
 import { useData } from "../DataProvider";
 import { PrevuModal } from "../components/PrevuModal";
 import { RessentiModal } from "../components/RessentiModal";
@@ -63,7 +64,7 @@ export function Fiche() {
       <div className="mt-1 font-bold">{sur.nom || "Sans titre"}</div>
       {sur.description ? (
         <details className="mt-2">
-          <summary>Description<span aria-hidden>⌄</span></summary>
+          <summary>Description<Chevron /></summary>
           <p className="mb-0 mt-2 whitespace-pre-line">{sur.description}</p>
         </details>
       ) : null}
@@ -97,7 +98,7 @@ export function Fiche() {
         <div className="card min-[1500px]:col-span-2">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <span className="pill" style={{ background: catVar(s) }}>{categoryLabel(cat)}</span>
+              <span className="pill" style={{ background: catVar(s) }}>{cat === "other" ? (sportLabel(s.type) ?? categoryLabel(cat)) : categoryLabel(cat)}</span>
               <h1 className="mb-0 mt-2 text-2xl font-black">{titleOf(s)}</h1>
               <div className="sub">{cap(fmtDayLong(s.startLocal))}, {fmtTime(s.startLocal)}</div>
             </div>
@@ -118,7 +119,7 @@ export function Fiche() {
               {week.sessions.map((w) => <SeanceRow key={w.id} s={w} current={w.id === s.id} />)}
             </div>
             <details className="card min-[1100px]:hidden">
-              <summary>Semaine du {fmtDayMonth(addDays(weekStart(dayOf(s)), 0))} · {fmtKmValue(week.km)} km<span aria-hidden>⌄</span></summary>
+              <summary>Semaine du {fmtDayMonth(addDays(weekStart(dayOf(s)), 0))} · {fmtKmValue(week.km)} km<Chevron /></summary>
               <div className="mt-2">{week.sessions.map((w) => <SeanceRow key={w.id} s={w} current={w.id === s.id} />)}</div>
             </details>
           </>

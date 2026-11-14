@@ -33,7 +33,7 @@ pub fn cle_existante() -> Result<String, String> {
 
 /// Les seuls secrets que l'interface peut écrire. Il n'existe volontairement aucune commande pour les relire :
 /// le webview ne voit jamais une valeur, seul le code Rust (futurs clients Garmin et Nolio) les lit.
-pub const NOMS: &[&str] = &["garmin-email", "garmin-motdepasse", "nolio-cle"];
+pub const NOMS: &[&str] = &["garmin-email", "garmin-motdepasse", "nolio-cle", "garmin-oauth1-token", "garmin-oauth1-secret"];
 
 fn valider(nom: &str) -> Result<(), String> {
     if NOMS.contains(&nom) { Ok(()) } else { Err(format!("secret inconnu : {nom}")) }

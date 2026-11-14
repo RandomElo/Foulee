@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtClock, fmtDayLong, fmtDayShort, fmtKm, fmtLong, fmtMeters, fmtPace, fmtTime, fmtWeekday1, texteErreur } from "./format";
+import { fmtClock, fmtDayLong, fmtDayShort, fmtKm, fmtLong, fmtMeters, fmtPace, fmtTime, fmtKmOuHeure, fmtWeekday1, texteErreur } from "./format";
 
 const NB = " ";
 
@@ -36,5 +36,17 @@ describe("texteErreur", () => {
     expect(texteErreur(new Error("déjà en cours"))).toBe("déjà en cours");
     expect(texteErreur("Nolio n'est plus connecté")).toBe("Nolio n'est plus connecté");
     expect(texteErreur(42)).toBe("42");
+  });
+});
+
+describe("fmtKmOuHeure", () => {
+  it("donne la distance quand il y en a une", () => {
+    expect(fmtKmOuHeure(10_000, "2026-11-11T18:00:00")).toBe(`10,0${NB}km`);
+    expect(fmtKmOuHeure(50, "2026-11-11T18:00:00")).toBe(`0,1${NB}km`);
+  });
+  it("donne l'heure de départ sans distance (musculation) ou avec moins de 50 m", () => {
+    expect(fmtKmOuHeure(0, "2026-11-11T18:00:00")).toBe(`18${NB}h${NB}00`);
+    expect(fmtKmOuHeure(null, "2026-11-11T07:05:00")).toBe(`7${NB}h${NB}05`);
+    expect(fmtKmOuHeure(49, "2026-11-11T18:30:00")).toBe(`18${NB}h${NB}30`);
   });
 });

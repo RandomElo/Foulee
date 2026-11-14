@@ -318,14 +318,75 @@ pub fn script_fenetre(debut: &str, fin: &str, fiches_jusqu_a: &str) -> Result<St
 
 // ---------- Connexion et synchronisation ----------
 
-/// Ouvre une vraie fenêtre sur Nolio et attend que l'utilisateur soit connecté (page du calendrier atteinte et session valide).
-/// Aucun champ n'est rempli par l'appli. Rend `Ok(())` une fois connecté, une erreur si la fenêtre est fermée, annulée ou trop longue.
-pub fn connecter(exe: &Path, profil: &Path, origine: &str, annule: &AtomicBool, delai: Duration) -> Result<(), String> {
-    crate::navigateur::connecter_fenetre(exe, profil, &format!("{origine}/calendar/"), annule, delai, |s| verifier_connexion(s, origine))
+/// Connecte Nolio avec l'e-mail et le mot de passe saisis dans l'appli, dans un navigateur sans fenêtre. Le mot de passe ne sert qu'à remplir le formulaire
+/// de Nolio : il n'est écrit nulle part, seule la session du profil du navigateur reste. Rend une erreur claire si Nolio refuse ou ne répond pas.
+pub fn connecter(exe: &Path, profil: &Path, origine: &str, email: &str, mot_de_passe: &str, annule: &AtomicBool, delai: Duration) -> Result<(), String> {
+    let mut s = crate::navigateur::lancer(exe, profil, false, &format!("{origine}/login/"))?;
+    let r = connecter_dans(&mut s, origine, email, mot_de_passe, annule, delai);
+    s.fermer();
+    r
+}
+
+/// Vrai si la session répond sur la page du calendrier, ouverte dans un onglet à part.
+fn connecte_par_onglet(s: &mut Session, origine: &str) -> bool {
+    let Ok(script) = script_fenetre("2026-01-05", "2026-01-05", "2000-01-01") else { return false };
+    let Ok(v) = s.evaluer(&format!("{origine}/calendar/"), &script) else { return false };
+    serde_json::from_value::<Lecture>(v).map(|l| l.connecte).unwrap_or(false)
+}
+
+fn connecter_dans(s: &mut Session, origine: &str, email: &str, mot_de_passe: &str, annule: &AtomicBool, delai: Duration) -> Result<(), String> {
+    let login = format!("{origine}/login");
+    let hors_login = |s: &mut Session| s.urls_pages().map(|u| !u.is_empty() && u.iter().all(|x| !x.starts_with(&login))).unwrap_or(false);
+    // 1. La session du profil est peut-être déjà valide ; sinon le formulaire s'affiche.
+    if connecte_par_onglet(s, origine) {
+        return Ok(());
+    }
+    let arrivee = crate::strava::attendre(annule, delai, || {
+        if let Ok(Some(v)) = s.evaluer_sur_page(origine, "!!document.querySelector('#id_username') && !!document.querySelector('#id_password')") {
+            if v == serde_json::json!(true) {
+                return Some(false);
+            }
+        }
+        (hors_login(s) && connecte_par_onglet(s, origine)).then_some(true)
+    })?;
+    match arrivee {
+        Some(true) => return Ok(()),
+        Some(false) => {}
+        None => return Err("la page de connexion de Nolio ne s'est pas affichée".into()),
+    }
+    // 2. Les identifiants entrent dans le formulaire (valeurs encodées en JSON : rien d'autre n'est inséré dans le script).
+    let remplir = format!(
+        "(() => {{ {}\n const u = document.querySelector('#id_username'), p = document.querySelector('#id_password'); if (!u || !p) return false; remplir(u, {}); remplir(p, {}); valider(p); return true; }})()",
+        crate::strava::REMPLIR,
+        serde_json::to_string(email).unwrap_or_default(),
+        serde_json::to_string(mot_de_passe).unwrap_or_default()
+    );
+    if s.evaluer_sur_page(origine, &remplir)? != Some(serde_json::json!(true)) {
+        return Err("formulaire de connexion de Nolio introuvable".into());
+    }
+    // 3. Nolio ouvre la session (la page quitte /login), ou affiche un refus.
+    let mut erreur_vue: Option<String> = None;
+    let fin = crate::strava::attendre(annule, delai, || {
+        if hors_login(s) {
+            return connecte_par_onglet(s, origine).then_some(Ok(()));
+        }
+        let script = "(() => { const e = document.querySelector('.errorlist, .alert, [role=alert]'); return e && (e.offsetParent || e.getClientRects().length) ? (e.innerText || '').trim().slice(0, 200) : null; })()";
+        if let Ok(Some(v)) = s.evaluer_sur_page(origine, script) {
+            if let Some(t) = v.as_str().filter(|t| !t.is_empty()) {
+                if erreur_vue.as_deref() == Some(t) {
+                    return Some(Err(format!("Nolio a refusé la connexion : {t}")));
+                }
+                erreur_vue = Some(t.to_string());
+            }
+        }
+        None
+    })?;
+    fin.unwrap_or_else(|| Err("Nolio n'a pas ouvert la session à temps : vérifie l'e-mail et le mot de passe".into()))
 }
 
 /// Vrai si la page du calendrier est ouverte ET que la session répond. Se fait dans la page de l'utilisateur, sans ouvrir d'onglet :
 /// un second onglet lui redemanderait ses identifiants pendant qu'il se connecte.
+#[cfg(test)]
 pub fn verifier_connexion(s: &mut Session, origine: &str) -> bool {
     let Ok(script) = script_fenetre("2026-01-05", "2026-01-05", "2000-01-01") else { return false };
     let Ok(Some(v)) = s.evaluer_sur_page(&format!("{origine}/calendar"), &script) else { return false };
@@ -574,6 +635,59 @@ mod tests {
             }
         });
         origine
+    }
+
+    /// Faux Nolio avec formulaire de connexion (champs `id_username` et `id_password`) : le mot de passe `bon` pose le cookie de session persistant,
+    /// tout autre affiche une erreur. Le calendrier ne répond que si le cookie est là.
+    fn faux_nolio_connexion(bon: String) -> String {
+        let ecoute = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origine = format!("http://127.0.0.1:{}", ecoute.local_addr().unwrap().port());
+        std::thread::spawn(move || {
+            for flux in ecoute.incoming() {
+                let Ok(mut flux) = flux else { continue };
+                let bon = bon.clone();
+                std::thread::spawn(move || {
+                    let mut tampon = [0u8; 4096];
+                    let n = flux.read(&mut tampon).unwrap_or(0);
+                    if n == 0 {
+                        return;
+                    }
+                    let requete = String::from_utf8_lossy(&tampon[..n]).to_string();
+                    let chemin = requete.split_whitespace().nth(1).unwrap_or("/").to_string();
+                    let session = requete.lines().any(|l| l.to_lowercase().starts_with("cookie:") && l.contains("sid=ok"));
+                    let (statut, type_, corps) = if chemin.split('?').next() == Some("/login/") {
+                        let page = format!(
+                            r#"<html><body><form id="login_form" onsubmit="return false"><input id="id_username" name="username" type="text"><input id="id_password" name="password" type="password"><button type="submit">Connexion</button></form>
+<script>document.getElementById('login_form').onsubmit=(e)=>{{e.preventDefault(); const f=e.target;
+ if(f.password.value==={bon:?} && f.username.value.includes('@')){{document.cookie='sid=ok; path=/; max-age=86400'; location='/calendar/'}}
+ else {{f.insertAdjacentHTML('beforeend','<ul class=errorlist><li>Identifiants incorrects</li></ul>')}}}}</script></body></html>"#
+                        );
+                        ("200 OK", "text/html", page)
+                    } else {
+                        reponse(&chemin, session)
+                    };
+                    let en_tete = format!("HTTP/1.1 {statut}\r\nContent-Type: {type_}\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n", corps.len(), if statut.starts_with("302") { "Location: /login/\r\n" } else { "" });
+                    let _ = flux.write_all(en_tete.as_bytes());
+                    let _ = flux.write_all(corps.as_bytes());
+                });
+            }
+        });
+        origine
+    }
+
+    #[test]
+    fn la_connexion_par_identifiants_refuse_un_mauvais_mot_de_passe_puis_garde_la_session() {
+        let Some(exe) = chromium_ou_ignorer() else { return };
+        let bon = "x".repeat(3) + "-essai";
+        let origine = faux_nolio_connexion(bon.clone());
+        let profil = dossier_test("connexion-identifiants");
+        let annule = AtomicBool::new(false);
+        let e = connecter(&exe, &profil, &origine, "moi@exemple.test", "faux", &annule, Duration::from_secs(30)).unwrap_err();
+        assert!(e.contains("Identifiants incorrects"), "{e}");
+        connecter(&exe, &profil, &origine, "moi@exemple.test", &bon, &annule, Duration::from_secs(30)).unwrap();
+        // Le profil a gardé la session : se reconnecter répond tout de suite, sans mot de passe valable.
+        connecter(&exe, &profil, &origine, "moi@exemple.test", "ignore", &annule, Duration::from_secs(30)).unwrap();
+        let _ = std::fs::remove_dir_all(&profil);
     }
 
     fn reponse(chemin: &str, connecte: bool) -> (&'static str, &'static str, String) {

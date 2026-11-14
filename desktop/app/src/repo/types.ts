@@ -69,6 +69,8 @@ export interface Repo {
   saveFeeling(f: Feeling): Promise<void>;
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string): Promise<void>;
+  /** Efface toutes les données locales (séances, santé, ressentis, Nolio, Strava, réglages). */
+  resetAll(): Promise<void>;
   /** Jeu de données de démonstration (développement seulement). Renvoie le nombre de séances. */
   loadDemo(): Promise<number>;
 }

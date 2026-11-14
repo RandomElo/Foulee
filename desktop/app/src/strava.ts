@@ -7,8 +7,12 @@ export interface EtatStrava { total: number; dernier: string | null }
 
 interface Api {
   etat(): Promise<EtatStrava>;
-  /** Ouvre une fenêtre sur Strava ; rend la main quand tu es connecté (ou en erreur si tu la fermes, annules, ou attends trop). */
-  connecter(): Promise<void>;
+  /** Saisit l'e-mail dans le navigateur de l'appli (sans fenêtre) et demande le code à usage unique. « code » : Strava l'a envoyé par e-mail ; « ok » : déjà connecté. */
+  connecter(email: string): Promise<"ok" | "code">;
+  /** Termine la connexion avec le code reçu par e-mail. */
+  envoyerCode(code: string): Promise<void>;
+  /** Abandonne une connexion en attente du code. */
+  abandonner(): Promise<void>;
   /** `complet` : toute la liste ; sinon seulement les pages récentes. */
   synchroniser(complet: boolean, onProgress: (page: number, pages: number) => void): Promise<BilanStrava>;
   annuler(): Promise<void>;
@@ -19,7 +23,9 @@ const tauri: Api = {
     const [l] = await select<{ n: number; dernier: string | null }>("SELECT count(*) AS n, max(lu_le) AS dernier FROM strava_activites");
     return { total: l?.n ?? 0, dernier: l?.dernier ?? null };
   },
-  connecter: () => invoke<void>("strava_connecter"),
+  connecter: (email) => invoke<"ok" | "code">("strava_connecter", { email }),
+  envoyerCode: (code) => invoke<void>("strava_code", { code }),
+  abandonner: () => invoke<void>("strava_abandonner"),
   async synchroniser(complet, onProgress) {
     const off = await listen<{ recus: number; total: number }>("strava-progression", (e) => onProgress(e.payload.recus, e.payload.total));
     try { return await invoke<BilanStrava>("strava_synchroniser", { complet }); } finally { off(); }
@@ -31,6 +37,8 @@ const tauri: Api = {
 const absent: Api = {
   etat: async () => ({ total: 0, dernier: null }),
   connecter: async () => { throw new Error("disponible seulement dans l'application"); },
+  envoyerCode: async () => { throw new Error("disponible seulement dans l'application"); },
+  abandonner: async () => undefined,
   synchroniser: async () => { throw new Error("disponible seulement dans l'application"); },
   annuler: async () => undefined,
 };

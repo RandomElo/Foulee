@@ -43,6 +43,7 @@ export function createMemoryRepo(): Repo {
     async saveFeeling(f) { feelings = [...feelings.filter((x) => x.activityId !== f.activityId), f]; },
     async getSetting(k) { return settings.get(k) ?? null; },
     async setSetting(k, v) { settings.set(k, v); },
+    async resetAll() { seances = []; roles.clear(); feelings = []; settings.clear(); },
     async loadDemo() { await init(); return seances.length; },
   };
 }

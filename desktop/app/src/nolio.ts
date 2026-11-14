@@ -7,8 +7,8 @@ export interface EtatNolio { total: number; dernier: string | null }
 
 interface Api {
   etat(): Promise<EtatNolio>;
-  /** Ouvre une fenêtre sur Nolio ; rend la main quand tu es connecté (ou en erreur si tu la fermes, annules, ou attends trop). */
-  connecter(): Promise<void>;
+  /** Connecte Nolio avec l'e-mail et le mot de passe saisis dans l'appli, dans le navigateur sans fenêtre. Rien n'est gardé : seule la session du navigateur reste. */
+  connecter(email: string, motDePasse: string): Promise<void>;
   synchroniser(onProgress: (fait: number, total: number) => void): Promise<BilanNolio>;
   annuler(): Promise<void>;
 }
@@ -18,7 +18,7 @@ const tauri: Api = {
     const [l] = await select<{ n: number; dernier: string | null }>("SELECT count(*) AS n, max(lu_le) AS dernier FROM nolio_evenements");
     return { total: l?.n ?? 0, dernier: l?.dernier ?? null };
   },
-  connecter: () => invoke<void>("nolio_connecter"),
+  connecter: (email, motDePasse) => invoke<void>("nolio_connecter", { email, motDePasse }),
   async synchroniser(onProgress) {
     const off = await listen<{ recus: number; total: number }>("nolio-progression", (e) => onProgress(e.payload.recus, e.payload.total));
     try { return await invoke<BilanNolio>("nolio_synchroniser"); } finally { off(); }

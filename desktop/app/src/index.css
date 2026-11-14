@@ -44,10 +44,10 @@ a, img { -webkit-user-drag: none; user-drag: none; }
 body { -webkit-user-select: text; user-select: text; }
 
 /* Focus : contour bleu du thème (la couleur d'accent), seulement au clavier ; dans un champ de saisie, il remplace le trait du champ
-   (dessiné dedans) au lieu de s'y ajouter. `data-input` est posé par main.tsx. */
+   (la bordure prend la couleur d'accent, épaissie vers l'intérieur : plus de double cercle aux coins arrondis). `data-input` est posé par main.tsx. */
 :focus-visible { outline: none; }
 html[data-input="keyboard"] :focus-visible { outline: 3px solid var(--c-accent); outline-offset: 2px; }
-input:focus-visible, textarea:focus-visible, html[data-input="keyboard"] input:focus-visible, html[data-input="keyboard"] textarea:focus-visible { outline: 2.5px solid var(--c-accent); outline-offset: -2.5px; }
+input:focus-visible, textarea:focus-visible, html[data-input="keyboard"] input:focus-visible, html[data-input="keyboard"] textarea:focus-visible { outline: none; border-color: var(--c-accent); box-shadow: inset 0 0 0 1.5px var(--c-accent); }
 }
 
 @layer components {
@@ -75,8 +75,8 @@ input:focus-visible, textarea:focus-visible, html[data-input="keyboard"] input:f
 
 .zones { display: flex; gap: 4px; }
 .zones i { flex: 1; height: 12px; border: 2px solid var(--c-line); border-radius: 4px; background: var(--c-card); }
-.zones i.on { background: var(--c-good); }
-.zones i.cur { background: var(--c-yellow); outline: 3px solid var(--c-line); outline-offset: 1px; }
+/* Jauge de charge : on remplit autant de segments que le niveau, de la couleur de la zone (--zc) ; tous les segments ont la même taille */
+.zones i.fill { background: var(--zc); }
 
 .veil { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 20; }
 .modal { background: var(--c-card); color: var(--c-ink); border: var(--outline) solid var(--c-line); border-radius: var(--radius); box-shadow: calc(var(--offset) + 2px) calc(var(--offset) + 2px) 0 var(--c-shadow); width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
@@ -88,3 +88,8 @@ input:focus-visible, textarea:focus-visible, html[data-input="keyboard"] input:f
 details.card > summary { list-style: none; display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-weight: 900; text-transform: uppercase; font-size: 0.875rem; }
 details.card > summary::-webkit-details-marker { display: none; }
 }
+
+/* Flèche des blocs dépliables : se retourne à l'ouverture */
+.chevron { transition: transform 0.15s; }
+details[open] > summary .chevron { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) { .chevron { transition: none; } }

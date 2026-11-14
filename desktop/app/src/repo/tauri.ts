@@ -77,6 +77,11 @@ export const tauriRepo: Repo = {
   async setSetting(key, value) {
     await execute("INSERT INTO reglages (cle, valeur) VALUES (?, ?) ON CONFLICT (cle) DO UPDATE SET valeur = excluded.valeur", [key, value]);
   },
+  async resetAll() {
+    // Les tables enfants d'abord ; tout dans une transaction.
+    const tables = ["lap_roles", "laps", "feelings", "daily", "nolio_evenements", "strava_activites", "activities", "reglages"];
+    await batch(tables.map((t) => ({ sql: `DELETE FROM ${t}`, params: [] })));
+  },
   async loadDemo() {
     // Les données de démonstration n'existent que dans les builds de développement (le bloc disparaît du build final).
     if (!import.meta.env.DEV) return 0;
