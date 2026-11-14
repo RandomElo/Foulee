@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { nolio, resumeBilan, type EtatNolio } from "../nolio";
+import { useData } from "../DataProvider";
 import { texteErreur } from "../lib/format";
 
 const jour = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("fr-FR", { day: "numeric", month: "long" });
@@ -9,6 +10,7 @@ const jour = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString("fr
  * Lecture seule, rien n'est écrit sur Nolio.
  */
 export function Nolio() {
+  const { reload } = useData();
   const [etat, setEtat] = useState<EtatNolio | null>(null);
   const [occupe, setOccupe] = useState<"connexion" | "lecture" | null>(null);
   const [progres, setProgres] = useState<{ fait: number; total: number } | null>(null);
@@ -21,7 +23,7 @@ export function Nolio() {
     setOccupe("lecture"); setMessage(null); setProgres({ fait: 0, total: 0 });
     try { setMessage({ ok: true, texte: resumeBilan(await nolio.synchroniser((fait, total) => setProgres({ fait, total }))) }); }
     catch (e) { setMessage({ ok: false, texte: texteErreur(e) }); }
-    finally { setOccupe(null); setProgres(null); charger(); }
+    finally { setOccupe(null); setProgres(null); charger(); void reload(); }
   };
   /** Une seule action : la fenêtre de connexion, puis la lecture dès que tu es connecté. */
   const connecter = async () => {

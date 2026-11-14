@@ -18,10 +18,33 @@ export interface Feeling {
   answeredAt: string;
 }
 
+/** Un élément du calendrier Nolio (lu par le navigateur piloté) : séance prévue ou réalisée, compétition, note. */
+export interface NolioEvt {
+  id: string;
+  genre: "prevu" | "reel" | "note";
+  competition: boolean;
+  date: string;
+  heure: string | null;
+  titre: string;
+  sport: string | null;
+  dureeS: number | null;
+  distanceM: number | null;
+  denivM: number | null;
+  allureSKm: number | null;
+  /** Vrai quand l'allure prévue est une limite haute (footing : « pas plus vite que »), pas une allure à tenir. */
+  allurePlafond: boolean;
+  /** Effort estimé par le coach (séances prévues). */
+  rpePrevu: number | null;
+  ressenti: number | null;
+  rpePercu: number | null;
+  commentaire: string | null;
+}
+
 export interface Donnees {
   seances: Seance[];
   daily: DailyRow[];
   feelings: Feeling[];
+  nolio: NolioEvt[];
 }
 
 /** Tout ce que l'interface lit et écrit. Deux réalisations : la base chiffrée de Tauri, et une mémoire pour développer dans un navigateur. */

@@ -342,6 +342,7 @@ impl Session {
     }
 
     /// Ouvre `url` dans un nouvel onglet, attend la fin du chargement, évalue `script` (une expression, promesse acceptée) et rend sa valeur JSON.
+    #[allow(dead_code)] // utilisée par la vérification de connexion de nolio.rs et par les tests
     pub fn evaluer(&mut self, url: &str, script: &str) -> Result<Value, String> {
         let (cible, sid) = self.ouvrir_onglet(url)?;
         let r = self.evaluer_dans(&sid, script);

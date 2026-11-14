@@ -1,12 +1,16 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
+import { Trophy } from "lucide-react";
 import { dayOf, isRun, kmPerWeek, loadZoneOf, LOAD_ZONES, addDays, weekStart } from "@foulee/core";
 import { useData } from "../DataProvider";
 import { KmChart } from "../components/KmChart";
+import { PrevuModal } from "../components/PrevuModal";
 import { RessentiModal } from "../components/RessentiModal";
 import { Empty } from "../components/ui";
-import { cap, fmtDayLong, fmtKmValue, fmtNum, fmtPace, fmtTime, fmtWeekday1 } from "../lib/format";
+import { cap, fmtClock, fmtDayLong, fmtDayShort, fmtKm, fmtKmValue, fmtNum, fmtPace, fmtTime, fmtWeekday1 } from "../lib/format";
+import { aVenir, dansJours, fmtAllure, prochainObjectif } from "../lib/nolio";
 import { firstDoubt, intervalFacts, lastInterval } from "../lib/stats";
+import type { NolioEvt } from "../repo/types";
 import { repo } from "../repo";
 
 const rpeClass = (n: number) => (n <= 3 ? "bg-mint" : n <= 5 ? "bg-yellow" : n <= 7 ? "bg-orange" : "bg-pink");
@@ -14,6 +18,7 @@ const rpeClass = (n: number) => (n <= 3 ? "bg-mint" : n <= 5 ? "bg-yellow" : n <
 export function Accueil() {
   const { data, analysis, today, prenom, loading, error, reload } = useData();
   const [ressenti, setRessenti] = useState(false);
+  const [prevu, setPrevu] = useState<NolioEvt | null>(null);
 
   if (loading) return <p className="sub" role="status">Chargement…</p>;
   if (error) return <div className="card text-bad" role="alert">Lecture impossible : {error}</div>;
@@ -63,6 +68,8 @@ export function Accueil() {
   const facts = last ? intervalFacts(last) : null;
   const doubt = firstDoubt(data.seances, today);
   const lastFeeling = last ? data.feelings.find((f) => f.activityId === last.id) : undefined;
+  const venir = aVenir(data.nolio, today);
+  const objectif = prochainObjectif(data.nolio, today);
 
   return (
     <>
@@ -112,6 +119,28 @@ export function Accueil() {
           </div>
         </section>
 
+        {venir.length > 0 || objectif ? (
+          <section className="card min-[700px]:col-span-2 min-[1300px]:col-span-4" aria-labelledby="h-venir">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <h2 className="title" id="h-venir">À venir</h2>
+              {objectif ? <span className="inline-flex items-center gap-1.5 font-bold"><Trophy size={16} aria-hidden />{objectif.evt.titre} · {dansJours(objectif.jours)}</span> : null}
+            </div>
+            {venir.length > 0 ? (
+              <ul className="m-0 mt-3 grid list-none grid-cols-[repeat(auto-fit,minmax(min(100%,240px),1fr))] gap-3 p-0">
+                {venir.map((e) => (
+                  <li key={e.id}>
+                    <button className="block h-full w-full rounded-[10px] border-[length:var(--outline)] border-line bg-card p-3 text-left" onClick={() => setPrevu(e)}>
+                      <span className="sub block capitalize">{fmtDayShort(e.date)}</span>
+                      <b className="block text-base font-black">{e.titre || "Séance"}</b>
+                      <span className="sub block whitespace-nowrap">{[e.dureeS !== null ? fmtClock(e.dureeS) : null, e.distanceM !== null ? fmtKm(e.distanceM) : null, e.allureSKm !== null ? `${e.allurePlafond ? "max " : ""}${fmtAllure(e.allureSKm)}` : null].filter(Boolean).join(" · ") || "–"}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </section>
+        ) : null}
+
         <section className="card min-[700px]:col-span-2" aria-labelledby="h-last">
           <h2 className="title" id="h-last">Dernier fractionné</h2>
           {last ? (
@@ -138,6 +167,7 @@ export function Accueil() {
         </section>
       </div>
 
+      {prevu ? <PrevuModal evt={prevu} onClose={() => setPrevu(null)} /> : null}
       {ressenti && last ? <RessentiModal seance={last} existing={lastFeeling} onClose={() => setRessenti(false)} /> : null}
     </>
   );

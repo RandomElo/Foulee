@@ -2,10 +2,12 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { addDays, categoryLabel, categoryOf, describeLaps, groupWeeks, weekStart, dayOf } from "@foulee/core";
 import { useData } from "../DataProvider";
+import { PrevuModal } from "../components/PrevuModal";
 import { RessentiModal } from "../components/RessentiModal";
 import { ROLE_LABEL, ToursModal } from "../components/ToursModal";
 import { Empty, catVar } from "../components/ui";
 import { cap, fmtClock, fmtDayLong, fmtDayMonth, fmtKm, fmtKmValue, fmtLong, fmtMeters, fmtNum, fmtPace, fmtTime } from "../lib/format";
+import { fmtAllure, positionSousLimite, prevuDe } from "../lib/nolio";
 import { doubtsOf, intervalFacts } from "../lib/stats";
 import { SeanceRow, titleOf } from "./Activites";
 
@@ -14,6 +16,7 @@ export function Fiche() {
   const { data, analysis, loading } = useData();
   const [ressenti, setRessenti] = useState(false);
   const [tours, setTours] = useState(false);
+  const [prevuOuvert, setPrevuOuvert] = useState(false);
   const s = data.seances.find((x) => String(x.id) === id);
   if (loading) return <p className="sub" role="status">Chargement…</p>;
   if (!s) return <><Link className="btn btn-main" to="/activites">← Activités</Link><div className="mt-4"><Empty>Cette séance n'existe pas (ou plus).</Empty></div></>;
@@ -25,6 +28,8 @@ export function Fiche() {
   const week = groupWeeks(data.seances).find((w) => w.start === weekStart(dayOf(s)));
   const load = analysis.globalAfter(s)?.total ?? null;
   const cat = categoryOf(s);
+  const prevu = prevuDe(data.nolio, s);
+  const limite = prevu ? positionSousLimite(prevu, facts?.pace ?? s.averageSpeed) : null;
 
   const numbers = (
     <div className="card grid grid-cols-[repeat(auto-fit,minmax(150px,1fr))] gap-4">
@@ -35,6 +40,17 @@ export function Fiche() {
       <div><b className="block whitespace-nowrap text-2xl font-black">{load !== null ? `${fmtNum(load)} / 20` : "–"}</b><span className="sub">charge globale</span></div>
     </div>
   );
+
+  const prevuCard = prevu ? (
+    <div className="card flex flex-wrap items-center justify-between gap-3">
+      <div className="min-w-0">
+        <h2 className="title">Prévu par ton coach</h2>
+        <div className="sub mt-1">{[prevu.titre, prevu.dureeS !== null ? fmtClock(prevu.dureeS) : null, prevu.distanceM !== null ? fmtKm(prevu.distanceM) : null, prevu.allureSKm !== null ? `${prevu.allurePlafond ? "max " : ""}${fmtAllure(prevu.allureSKm)}` : null].filter(Boolean).join(" · ")}</div>
+        {limite ? <div className="mt-1 font-bold">{limite === "sous" ? "Resté sous la limite d'allure." : "Plus vite que la limite d'allure."}</div> : null}
+      </div>
+      <button className="btn" onClick={() => setPrevuOuvert(true)}>Détail</button>
+    </div>
+  ) : null;
 
   const toursCard = detail ? (
     <details className="card" open>
@@ -71,6 +87,7 @@ export function Fiche() {
           </div>
         </div>
         {numbers}
+        {prevuCard ? <div className="min-w-0 min-[1500px]:col-span-2">{prevuCard}</div> : null}
         {toursCard ? <div className="min-w-0">{toursCard}</div> : null}
       </div>
 
@@ -90,6 +107,7 @@ export function Fiche() {
       </aside>
 
       {ressenti ? <RessentiModal seance={s} existing={feeling} onClose={() => setRessenti(false)} /> : null}
+      {prevuOuvert && prevu ? <PrevuModal evt={prevu} onClose={() => setPrevuOuvert(false)} /> : null}
       {tours ? <ToursModal seance={s} onClose={() => setTours(false)} /> : null}
     </div>
   );

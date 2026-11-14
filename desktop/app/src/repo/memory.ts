@@ -1,7 +1,8 @@
 import type { DailyRow, LapRole, RoleOverrides } from "@foulee/core";
 import { applyOverride, toSeance } from "./enrich";
 import { localToday } from "../lib/format";
-import type { Donnees, Feeling, Repo } from "./types";
+import { demoNolio } from "./demoNolio";
+import type { Donnees, Feeling, NolioEvt, Repo } from "./types";
 
 /**
  * Réalisation en mémoire pour développer et tester l'interface dans un navigateur, hors Tauri : même contrat que la base chiffrée,
@@ -12,6 +13,7 @@ export function createMemoryRepo(): Repo {
   let seances: Donnees["seances"] = [];
   let daily: DailyRow[] = [];
   let feelings: Feeling[] = [];
+  let nolio: NolioEvt[] = [];
   const settings = new Map<string, string>();
   const roles = new Map<number, RoleOverrides>();
 
@@ -21,13 +23,14 @@ export function createMemoryRepo(): Repo {
     seances = d.activities.map((a) => toSeance({ ...a, source: "demo", stravaLabels: null }, a.laps, roles.get(a.id)));
     daily = d.daily;
     feelings = d.feelings;
+    nolio = demoNolio(localToday(), seances.map((s) => s.startLocal.slice(0, 10)));
     return seances.length;
   };
   const init = () => (ready ??= demo().then(() => undefined));
   const refresh = () => { seances = seances.map((s) => toSeance(s, s.laps, roles.get(s.id))); };
 
   return {
-    async load() { await init(); return { seances, daily, feelings }; },
+    async load() { await init(); return { seances, daily, feelings, nolio }; },
     async setRole(id, idx, role: LapRole | null) {
       const s = seances.find((x) => x.id === id);
       if (!s) return;

@@ -2,7 +2,7 @@ import { batch, execute, select } from "../db";
 import type { DailyRow, Lap, LapRole, RoleOverrides } from "@foulee/core";
 import { toSeance } from "./enrich";
 import { localToday } from "../lib/format";
-import type { Donnees, Feeling, Repo, Seance } from "./types";
+import type { Donnees, Feeling, NolioEvt, Repo, Seance } from "./types";
 
 type Ligne = Record<string, unknown>;
 const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
@@ -15,12 +15,13 @@ const lap = (r: Ligne): Lap => ({
 
 export const tauriRepo: Repo = {
   async load(): Promise<Donnees> {
-    const [acts, laps, roles, daily, feel] = await Promise.all([
+    const [acts, laps, roles, daily, feel, nolio] = await Promise.all([
       select("SELECT * FROM activities ORDER BY start_local, id"),
       select("SELECT * FROM laps ORDER BY activity_id, idx"),
       select("SELECT activity_id, idx, role FROM lap_roles"),
       select("SELECT * FROM daily ORDER BY date"),
       select("SELECT * FROM feelings"),
+      select("SELECT * FROM nolio_evenements ORDER BY date, heure, id"),
     ]);
     const lapsDe = new Map<number, Lap[]>();
     for (const r of laps) lapsDe.set(r.activity_id as number, [...(lapsDe.get(r.activity_id as number) ?? []), lap(r)]);
@@ -41,6 +42,11 @@ export const tauriRepo: Repo = {
       daily: daily.map((d): DailyRow => ({
         date: String(d.date), restingHr: num(d.resting_hr), avgStress: num(d.avg_stress), bodyBatteryHigh: num(d.body_battery_high),
         sleepSeconds: num(d.sleep_seconds), sleepScore: num(d.sleep_score), hrvNight: num(d.hrv_night), steps: num(d.steps),
+      })),
+      nolio: nolio.map((n): NolioEvt => ({
+        id: String(n.id), genre: n.genre as NolioEvt["genre"], competition: n.competition === 1, date: String(n.date), heure: txt(n.heure), titre: String(n.titre ?? ""),
+        sport: txt(n.sport), dureeS: num(n.duree_s), distanceM: num(n.distance_m), denivM: num(n.deniv_m), allureSKm: num(n.allure_s_km), allurePlafond: n.allure_plafond === 1,
+        rpePrevu: num(n.rpe_prevu), ressenti: num(n.ressenti), rpePercu: num(n.rpe_percu), commentaire: txt(n.commentaire),
       })),
       feelings: feel.map((f): Feeling => ({ activityId: f.activity_id as number, rpe: num(f.rpe), legs: num(f.legs), pain: num(f.pain), note: txt(f.note) ?? "", answeredAt: String(f.answered_at) })),
     };

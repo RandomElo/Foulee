@@ -44,7 +44,7 @@ describe("dépôt Tauri contre le schéma réel", () => {
 
   it("une base vide se charge sans erreur", async () => {
     const d = await tauriRepo.load();
-    expect(d).toEqual({ seances: [], daily: [], feelings: [] });
+    expect(d).toEqual({ seances: [], daily: [], feelings: [], nolio: [] });
   });
 
   it("le jeu de démonstration s'insère et se relit, titres de fractionné calculés", async () => {
@@ -84,6 +84,18 @@ describe("dépôt Tauri contre le schéma réel", () => {
     const apres = (await tauriRepo.load()).seances.find((s) => s.id === avant.id)!;
     expect(apres.overrides.every((o) => o === null)).toBe(true);
     expect(apres.intervalTitle).toBe(avant.intervalTitle);
+  });
+
+  it("le calendrier Nolio se relit tel que Rust l'écrit : booléens, valeurs absentes et ordre", async () => {
+    const ins = db.prepare("INSERT INTO nolio_evenements (id, genre, competition, date, heure, titre, sport, duree_s, distance_m, deniv_m, allure_s_km, allure_plafond, rpe_prevu, ressenti, rpe_percu, commentaire, structure, lu_le) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
+    ins.run("tp-2", "prevu", 0, "2026-11-04", null, "Footing", "Running", 2952, 10000, null, 295, 1, 2, null, null, "Sensation de facilité", "[]", "2026-11-14");
+    ins.run("cp-9", "prevu", 1, "2026-11-15", null, "Semi", "Running", null, null, null, null, 0, null, null, null, null, null, "2026-11-14");
+    ins.run("t-1", "reel", 0, "2026-11-03", "07:29", "Footing", "Running", 3067, 9780, 108, 314, 0, null, 3, 5, null, null, "2026-11-14");
+    const { nolio } = await tauriRepo.load();
+    expect(nolio.map((n) => n.id)).toEqual(["t-1", "tp-2", "cp-9"]);
+    expect(nolio[1]).toMatchObject({ genre: "prevu", competition: false, allurePlafond: true, dureeS: 2952, distanceM: 10000, denivM: null, rpePrevu: 2, commentaire: "Sensation de facilité", heure: null });
+    expect(nolio[2]).toMatchObject({ competition: true, allurePlafond: false, dureeS: null, commentaire: null });
+    expect(nolio[0]).toMatchObject({ genre: "reel", heure: "07:29", ressenti: 3, rpePercu: 5, denivM: 108 });
   });
 
   it("les réglages s'écrivent et se relisent", async () => {
