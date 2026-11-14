@@ -89,3 +89,7 @@ android/app/src/main/java/fr/foulee/app/
   Profile.kt                          analyse du profil de coureur
   Theme.kt, Ui.kt, Screens.kt, Health.kt, Fitness.kt, SessionCard.kt, User.kt, SyncScreen.kt, ActivityDetail.kt, RouteMap.kt, Onboarding.kt, MainActivity.kt   interface
 ```
+
+## Prochaine étape
+
+Une version pour ordinateur (Windows, Mac et Linux) est prévue, avec de nouvelles intégrations d'API. Comme l'appli Android, elle restera local first : les données restent sur ta machine. Elle pourra aussi se brancher à Claude, pour lui poser des questions sur tes séances.
