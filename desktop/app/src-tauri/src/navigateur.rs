@@ -476,6 +476,8 @@ mod tests {
     #[test]
     fn un_chromium_installe_lit_une_page_locale_et_garde_les_cookies_du_profil() {
         let Some(nav) = detecter().into_iter().next() else {
+            // Sur la CI, un navigateur est toujours présent : son absence est une panne, pas une raison d'ignorer le test.
+            assert!(std::env::var_os("FOULEE_EXIGER_NAVIGATEUR").is_none(), "aucun Chromium détecté alors qu'il est exigé");
             eprintln!("(pas de Chromium installé : test de bout en bout ignoré)");
             return;
         };
