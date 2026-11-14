@@ -69,6 +69,22 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         lu_le TEXT NOT NULL
      );
      CREATE INDEX nolio_evenements_date ON nolio_evenements (date);",
+    // 5 : activités Strava lues par le navigateur piloté (nom, description, labels), rapprochées des séances par l'heure de départ
+    "CREATE TABLE strava_activites (
+        id TEXT PRIMARY KEY,
+        sport TEXT NOT NULL,
+        nom TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        labels TEXT NOT NULL DEFAULT '',
+        debut TEXT NOT NULL,
+        debut_local TEXT NOT NULL,
+        duree_totale_s INTEGER NOT NULL DEFAULT 0,
+        duree_mouvement_s INTEGER,
+        distance_m REAL,
+        denivele_m REAL,
+        lu_le TEXT NOT NULL
+     );
+     CREATE INDEX strava_activites_debut_local ON strava_activites (debut_local);",
 ];
 
 /// Ouvre (ou crée) la base chiffrée avec une clé de 32 octets en hexadécimale, puis joue les migrations.

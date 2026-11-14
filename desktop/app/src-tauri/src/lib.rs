@@ -3,6 +3,7 @@ mod maj;
 mod navigateur;
 mod nolio;
 mod secrets;
+mod strava;
 
 use rusqlite::Connection;
 use serde_json::{Map, Value};
@@ -134,26 +135,26 @@ async fn navigateur_tester(app: AppHandle) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
-// ---------- Nolio (lecture seule, par le navigateur piloté) ----------
+// ---------- Sources lues par le navigateur piloté (Nolio, Strava) : lecture seule ----------
 
-static NOLIO_OCCUPE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-static NOLIO_ANNULER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static NAV_OCCUPE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static NAV_ANNULER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Un seul usage du profil Nolio à la fois (connexion ou synchronisation) : deux navigateurs sur le même profil se bloquent.
-struct OccupeNolio;
-impl OccupeNolio {
+/// Une seule tâche du navigateur piloté à la fois (connexion ou synchronisation, Nolio ou Strava) : simple, et jamais deux fenêtres ouvertes.
+struct OccupeNavigateur;
+impl OccupeNavigateur {
     fn prendre() -> Result<Self, String> {
         use std::sync::atomic::Ordering;
-        if NOLIO_OCCUPE.swap(true, Ordering::SeqCst) {
-            return Err("Nolio est déjà en cours d'utilisation".into());
+        if NAV_OCCUPE.swap(true, Ordering::SeqCst) {
+            return Err("Le navigateur de l'appli est déjà en cours d'utilisation".into());
         }
-        NOLIO_ANNULER.store(false, Ordering::SeqCst);
-        Ok(OccupeNolio)
+        NAV_ANNULER.store(false, Ordering::SeqCst);
+        Ok(OccupeNavigateur)
     }
 }
-impl Drop for OccupeNolio {
+impl Drop for OccupeNavigateur {
     fn drop(&mut self) {
-        NOLIO_OCCUPE.store(false, std::sync::atomic::Ordering::SeqCst);
+        NAV_OCCUPE.store(false, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -169,11 +170,11 @@ fn navigateur_choisi(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 /// Ouvre une fenêtre sur Nolio : l'utilisateur s'y connecte lui-même (rien n'est rempli ni stocké par l'appli). Rend la main une fois connecté.
 #[tauri::command]
 async fn nolio_connecter(app: AppHandle) -> Result<(), String> {
-    let occupe = OccupeNolio::prendre()?;
+    let occupe = OccupeNavigateur::prendre()?;
     let (exe, profil) = (navigateur_choisi(&app)?, profil_nolio(&app)?);
     tauri::async_runtime::spawn_blocking(move || {
         let _occupe = occupe;
-        nolio::connecter(&exe, &profil, nolio::ORIGINE, &NOLIO_ANNULER, std::time::Duration::from_secs(600))
+        nolio::connecter(&exe, &profil, nolio::ORIGINE, &NAV_ANNULER, std::time::Duration::from_secs(600))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -182,7 +183,7 @@ async fn nolio_connecter(app: AppHandle) -> Result<(), String> {
 /// Lit le calendrier Nolio (35 jours passés, 200 à venir ; commentaires et structures jusqu'à 21 jours à venir) sans fenêtre.
 #[tauri::command]
 async fn nolio_synchroniser(app: AppHandle) -> Result<nolio::Bilan, String> {
-    let occupe = OccupeNolio::prendre()?;
+    let occupe = OccupeNavigateur::prendre()?;
     let (exe, profil) = (navigateur_choisi(&app)?, profil_nolio(&app)?);
     let a = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -198,7 +199,7 @@ async fn nolio_synchroniser(app: AppHandle) -> Result<nolio::Bilan, String> {
             &debut,
             &fin,
             &fiches,
-            &NOLIO_ANNULER,
+            &NAV_ANNULER,
             |evs| nolio::enregistrer(&*verrou(base.inner())?, evs, &aujourdhui),
             |fait, total| {
                 let _ = evenements.emit("nolio-progression", Progression { recus: fait as u64, total: total as u64 });
@@ -209,9 +210,54 @@ async fn nolio_synchroniser(app: AppHandle) -> Result<nolio::Bilan, String> {
     .map_err(|e| e.to_string())?
 }
 
+fn profil_strava(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(dossier_app(app)?.join("navigateur").join("profils").join("strava"))
+}
+
+/// Ouvre une fenêtre sur Strava : l'utilisateur s'y connecte lui-même (rien n'est rempli ni stocké par l'appli). Rend la main une fois connecté.
+#[tauri::command]
+async fn strava_connecter(app: AppHandle) -> Result<(), String> {
+    let occupe = OccupeNavigateur::prendre()?;
+    let (exe, profil) = (navigateur_choisi(&app)?, profil_strava(&app)?);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _occupe = occupe;
+        strava::connecter(&exe, &profil, strava::ORIGINE, &NAV_ANNULER, std::time::Duration::from_secs(600))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Lit la liste des activités Strava sans fenêtre, une page toutes les 3 secondes. `complet` : toute la liste ; sinon seulement les pages récentes.
+#[tauri::command]
+async fn strava_synchroniser(app: AppHandle, complet: bool) -> Result<strava::Bilan, String> {
+    let occupe = OccupeNavigateur::prendre()?;
+    let (exe, profil) = (navigateur_choisi(&app)?, profil_strava(&app)?);
+    let a = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _occupe = occupe;
+        let aujourdhui = nolio::aujourd_hui();
+        let base = a.state::<Base>();
+        let evenements = a.clone();
+        strava::synchroniser(
+            &exe,
+            &profil,
+            strava::ORIGINE,
+            complet,
+            strava::PAUSE_ENTRE_PAGES,
+            &NAV_ANNULER,
+            |acts| strava::enregistrer(&*verrou(base.inner())?, acts, &aujourdhui),
+            |fait, total| {
+                let _ = evenements.emit("strava-progression", Progression { recus: fait as u64, total: total as u64 });
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 fn nolio_annuler() {
-    NOLIO_ANNULER.store(true, std::sync::atomic::Ordering::SeqCst);
+    NAV_ANNULER.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
 // ---------- Mise à jour (fichier installé remplacé par une nouvelle version) ----------
@@ -262,7 +308,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos, secret_definir, secret_existe, secret_supprimer, navigateur_etat, navigateur_telecharger, navigateur_annuler, navigateur_tester, nolio_connecter, nolio_synchroniser, nolio_annuler, maj_en_attente, maj_relancer])
+        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos, secret_definir, secret_existe, secret_supprimer, navigateur_etat, navigateur_telecharger, navigateur_annuler, navigateur_tester, nolio_connecter, nolio_synchroniser, nolio_annuler, strava_connecter, strava_synchroniser, maj_en_attente, maj_relancer])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Foulée");
 }

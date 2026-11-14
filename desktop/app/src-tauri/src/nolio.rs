@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 pub const ORIGINE: &str = "https://www.nolio.io";
 /// Une fenêtre de lecture couvre au plus 14 jours : une réponse courte, et un point d'étape après chacune.
@@ -19,7 +19,7 @@ const JOURS_PAR_FENETRE: i64 = 14;
 
 // ---------- Dates (sans dépendance : algorithmes de Howard Hinnant) ----------
 
-fn jours_depuis_epoque(a: i64, m: i64, j: i64) -> i64 {
+pub(crate) fn jours_depuis_epoque(a: i64, m: i64, j: i64) -> i64 {
     let a = if m <= 2 { a - 1 } else { a };
     let ere = a.div_euclid(400);
     let aj = a - ere * 400;
@@ -29,7 +29,7 @@ fn jours_depuis_epoque(a: i64, m: i64, j: i64) -> i64 {
     ere * 146097 + jdp - 719468
 }
 
-fn date_depuis_jours(z: i64) -> String {
+pub(crate) fn date_depuis_jours(z: i64) -> String {
     let z = z + 719468;
     let ere = z.div_euclid(146097);
     let jde = z - ere * 146097;
@@ -321,28 +321,7 @@ pub fn script_fenetre(debut: &str, fin: &str, fiches_jusqu_a: &str) -> Result<St
 /// Ouvre une vraie fenêtre sur Nolio et attend que l'utilisateur soit connecté (page du calendrier atteinte et session valide).
 /// Aucun champ n'est rempli par l'appli. Rend `Ok(())` une fois connecté, une erreur si la fenêtre est fermée, annulée ou trop longue.
 pub fn connecter(exe: &Path, profil: &Path, origine: &str, annule: &AtomicBool, delai: Duration) -> Result<(), String> {
-    let mut s = crate::navigateur::lancer(exe, profil, true, &format!("{origine}/calendar/"))?;
-    let debut = Instant::now();
-    let resultat = loop {
-        if annule.load(Ordering::SeqCst) {
-            break Err("connexion annulée".to_string());
-        }
-        if debut.elapsed() > delai {
-            break Err("connexion non terminée à temps".to_string());
-        }
-        match s.urls_pages() {
-            Err(_) => break Err("la fenêtre a été fermée avant la connexion".to_string()),
-            Ok(urls) if urls.is_empty() => break Err("la fenêtre a été fermée avant la connexion".to_string()),
-            Ok(_) => {
-                if verifier_connexion(&mut s, origine) {
-                    break Ok(());
-                }
-            }
-        }
-        std::thread::sleep(Duration::from_secs(2));
-    };
-    s.fermer();
-    resultat
+    crate::navigateur::connecter_fenetre(exe, profil, &format!("{origine}/calendar/"), annule, delai, |s| verifier_connexion(s, origine))
 }
 
 /// Vrai si la page du calendrier est ouverte ET que la session répond. Se fait dans la page de l'utilisateur, sans ouvrir d'onglet :
@@ -515,7 +494,7 @@ mod tests {
 
     fn base_memoire() -> Connection {
         let c = Connection::open_in_memory().unwrap();
-        c.execute_batch(crate::base::MIGRATIONS.last().unwrap()).unwrap();
+        c.execute_batch(crate::base::MIGRATIONS.iter().find(|m| m.contains("nolio_evenements")).expect("migration introuvable")).unwrap();
         c
     }
 

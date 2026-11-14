@@ -8,6 +8,7 @@ import { ROLE_LABEL, ToursModal } from "../components/ToursModal";
 import { Empty, catVar } from "../components/ui";
 import { cap, fmtClock, fmtDayLong, fmtDayMonth, fmtKm, fmtKmValue, fmtLong, fmtMeters, fmtNum, fmtPace, fmtTime } from "../lib/format";
 import { fmtAllure, positionSousLimite, prevuDe } from "../lib/nolio";
+import { libelleLabel, stravaDe } from "../lib/strava";
 import { doubtsOf, intervalFacts } from "../lib/stats";
 import { SeanceRow, titleOf } from "./Activites";
 
@@ -29,6 +30,7 @@ export function Fiche() {
   const load = analysis.globalAfter(s)?.total ?? null;
   const cat = categoryOf(s);
   const prevu = prevuDe(data.nolio, s);
+  const sur = stravaDe(data.strava, s);
   const limite = prevu ? positionSousLimite(prevu, facts?.pace ?? s.averageSpeed) : null;
 
   const numbers = (
@@ -49,6 +51,22 @@ export function Fiche() {
         {limite ? <div className="mt-1 font-bold">{limite === "sous" ? "Resté sous la limite d'allure." : "Plus vite que la limite d'allure."}</div> : null}
       </div>
       <button className="btn" onClick={() => setPrevuOuvert(true)}>Détail</button>
+    </div>
+  ) : null;
+
+  const stravaCard = sur ? (
+    <div className="card">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="title">Sur Strava</h2>
+        {sur.labels.length > 0 ? <div className="flex flex-wrap gap-1.5">{sur.labels.map((l) => <span key={l} className="pill">{libelleLabel(l)}</span>)}</div> : null}
+      </div>
+      <div className="mt-1 font-bold">{sur.nom || "Sans titre"}</div>
+      {sur.description ? (
+        <details className="mt-2">
+          <summary>Description<span aria-hidden>⌄</span></summary>
+          <p className="mb-0 mt-2 whitespace-pre-line">{sur.description}</p>
+        </details>
+      ) : null}
     </div>
   ) : null;
 
@@ -88,6 +106,7 @@ export function Fiche() {
         </div>
         {numbers}
         {prevuCard ? <div className="min-w-0 min-[1500px]:col-span-2">{prevuCard}</div> : null}
+        {stravaCard ? <div className="min-w-0 min-[1500px]:col-span-2">{stravaCard}</div> : null}
         {toursCard ? <div className="min-w-0">{toursCard}</div> : null}
       </div>
 

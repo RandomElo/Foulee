@@ -4,6 +4,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { Navigateur } from "./Navigateur";
 import { Nolio } from "./Nolio";
 import { Sources } from "./Sources";
+import { Strava } from "./Strava";
 import type { Family, Mode } from "../theme/themes";
 
 function Group<T extends string>({ label, value, options, onPick, disabled = false }: { label: string; value: T; options: [T, string][]; onPick: (v: T) => void; disabled?: boolean }) {
@@ -39,6 +40,7 @@ export function Reglages() {
       </section>
       <Sources />
       <Nolio />
+      <Strava />
       <Navigateur />
       {import.meta.env.DEV ? (
         <section className="card" aria-labelledby="h-dev">

@@ -14,7 +14,7 @@ interface Ctx {
   setPrenom: (p: string) => void;
 }
 
-const VIDE: Donnees = { seances: [], daily: [], feelings: [], nolio: [] };
+const VIDE: Donnees = { seances: [], daily: [], feelings: [], nolio: [], strava: [] };
 const DataCtx = createContext<Ctx | null>(null);
 
 export function DataProvider({ children }: { children: ReactNode }) {

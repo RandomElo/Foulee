@@ -44,7 +44,7 @@ describe("dépôt Tauri contre le schéma réel", () => {
 
   it("une base vide se charge sans erreur", async () => {
     const d = await tauriRepo.load();
-    expect(d).toEqual({ seances: [], daily: [], feelings: [], nolio: [] });
+    expect(d).toEqual({ seances: [], daily: [], feelings: [], nolio: [], strava: [] });
   });
 
   it("le jeu de démonstration s'insère et se relit, titres de fractionné calculés", async () => {
@@ -96,6 +96,16 @@ describe("dépôt Tauri contre le schéma réel", () => {
     expect(nolio[1]).toMatchObject({ genre: "prevu", competition: false, allurePlafond: true, dureeS: 2952, distanceM: 10000, denivM: null, rpePrevu: 2, commentaire: "Sensation de facilité", heure: null });
     expect(nolio[2]).toMatchObject({ competition: true, allurePlafond: false, dureeS: null, commentaire: null });
     expect(nolio[0]).toMatchObject({ genre: "reel", heure: "07:29", ressenti: 3, rpePercu: 5, denivM: 108 });
+  });
+
+  it("les activités Strava se relisent telles que Rust les écrit : labels en liste, heure locale, ordre", async () => {
+    const ins = db.prepare("INSERT INTO strava_activites (id, sport, nom, description, labels, debut, debut_local, duree_totale_s, duree_mouvement_s, distance_m, denivele_m, lu_le) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+    ins.run("22", "Run", "Sortie", "", "LongRun,Workout", "2026-11-04T06:00:00Z", "2026-11-04T07:00:00", 5400, 5300, 18000, 120, "2026-11-14");
+    ins.run("11", "Run", "Footing", "Bien\nfrais", "", "2026-11-03T06:29:00Z", "2026-11-03T07:29:00", 3000, null, null, null, "2026-11-14");
+    const { strava } = await tauriRepo.load();
+    expect(strava.map((s) => s.id)).toEqual(["11", "22"]);
+    expect(strava[0]).toMatchObject({ nom: "Footing", description: "Bien\nfrais", labels: [], debutLocal: "2026-11-03T07:29:00", dureeTotaleS: 3000 });
+    expect(strava[1]).toMatchObject({ labels: ["LongRun", "Workout"] });
   });
 
   it("les réglages s'écrivent et se relisent", async () => {

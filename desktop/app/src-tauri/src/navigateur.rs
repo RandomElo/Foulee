@@ -289,6 +289,34 @@ pub fn lancer(exe: &Path, profil: &Path, visible: bool, url: &str) -> Result<Ses
     Ok(Session { enfant, ws, suivant: 1, profil: profil.to_path_buf() })
 }
 
+/// Ouvre une vraie fenêtre (une seule page, sans onglets ni barre d'adresse) sur `url_depart` et attend que l'utilisateur soit connecté,
+/// ce que décide `verifier` (qui ne doit ouvrir aucun onglet). L'appli ne remplit aucun champ. Rend `Ok(())` une fois connecté, une erreur
+/// si la fenêtre est fermée, la connexion annulée ou trop longue. Le navigateur est fermé proprement dans tous les cas (cookies écrits).
+pub fn connecter_fenetre(exe: &Path, profil: &Path, url_depart: &str, annule: &AtomicBool, delai: Duration, mut verifier: impl FnMut(&mut Session) -> bool) -> Result<(), String> {
+    let mut s = lancer(exe, profil, true, url_depart)?;
+    let debut = Instant::now();
+    let resultat = loop {
+        if annule.load(Ordering::SeqCst) {
+            break Err("connexion annulée".to_string());
+        }
+        if debut.elapsed() > delai {
+            break Err("connexion non terminée à temps".to_string());
+        }
+        match s.urls_pages() {
+            Err(_) => break Err("la fenêtre a été fermée avant la connexion".to_string()),
+            Ok(urls) if urls.is_empty() => break Err("la fenêtre a été fermée avant la connexion".to_string()),
+            Ok(_) => {
+                if verifier(&mut s) {
+                    break Ok(());
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    };
+    s.fermer();
+    resultat
+}
+
 impl Session {
     /// Envoie une commande DevTools et attend sa réponse (les événements reçus entre-temps sont ignorés).
     pub fn appeler(&mut self, methode: &str, params: Value, session_id: Option<&str>) -> Result<Value, String> {

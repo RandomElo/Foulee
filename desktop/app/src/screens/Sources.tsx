@@ -47,7 +47,7 @@ export function Sources() {
   };
 
   return (
-    <section className="card min-[700px]:col-span-2" aria-labelledby="h-sources">
+    <section className="card" aria-labelledby="h-sources">
       <h2 className="title" id="h-sources">Sources</h2>
       <p className="sub mb-0 mt-1">Stockés dans le trousseau de ton système. Jamais affichés, jamais dans un fichier.</p>
       <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(min(100%,300px),1fr))] gap-[18px]">

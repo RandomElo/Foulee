@@ -40,11 +40,25 @@ export interface NolioEvt {
   commentaire: string | null;
 }
 
+/** Une activité Strava (lue par le navigateur piloté) : nom, description et labels tels que Strava les affiche. */
+export interface StravaAct {
+  id: string;
+  sport: string;
+  nom: string;
+  description: string;
+  /** Labels gérés : LongRun, Race, Workout. */
+  labels: string[];
+  /** Heure de départ locale (comme les séances de la montre), « 2026-11-03T07:29:00 ». */
+  debutLocal: string;
+  dureeTotaleS: number;
+}
+
 export interface Donnees {
   seances: Seance[];
   daily: DailyRow[];
   feelings: Feeling[];
   nolio: NolioEvt[];
+  strava: StravaAct[];
 }
 
 /** Tout ce que l'interface lit et écrit. Deux réalisations : la base chiffrée de Tauri, et une mémoire pour développer dans un navigateur. */
