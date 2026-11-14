@@ -1,7 +1,8 @@
-import { CircleUser, Footprints, HeartPulse, House } from "lucide-react";
+import { CircleUser, Footprints, HeartPulse, House, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useData } from "./DataProvider";
+import { relancer, useMiseAJour } from "./maj";
 import { Accueil } from "./screens/Accueil";
 import { Activites } from "./screens/Activites";
 import { Fiche } from "./screens/Fiche";
@@ -30,6 +31,7 @@ function Forme() {
 
 export default function App() {
   const { prenom, data } = useData();
+  const majDispo = useMiseAJour();
   const demo = data.seances.length > 0 && data.seances.every((s) => s.source === "demo");
   const tabs = [
     { to: "/", label: "Accueil", icon: House, end: true },
@@ -46,7 +48,10 @@ export default function App() {
             <NavLink key={to} to={to} end={end} className="tab"><Icon size={20} aria-hidden /><span className="max-[700px]:hidden">{label}</span></NavLink>
           ))}
         </nav>
-        {demo ? <span className="pill ml-auto !bg-card !text-ink">Données de démo</span> : data.seances.length === 0 ? <span className="pill ml-auto">Aucune source</span> : null}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {majDispo ? <button className="btn btn-main whitespace-nowrap" onClick={() => void relancer()}><RefreshCw size={16} aria-hidden className="mr-1.5 inline" />Mettre à jour</button> : null}
+          {demo ? <span className="pill !bg-card !text-ink">Données de démo</span> : data.seances.length === 0 ? <span className="pill">Aucune source</span> : null}
+        </div>
       </header>
       <main className="flex-1 p-5 max-[700px]:p-3">
         <ScrollToTop />

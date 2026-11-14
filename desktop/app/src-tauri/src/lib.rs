@@ -1,4 +1,5 @@
 mod base;
+mod maj;
 mod navigateur;
 mod nolio;
 mod secrets;
@@ -213,6 +214,25 @@ fn nolio_annuler() {
     NOLIO_ANNULER.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
+// ---------- Mise à jour (fichier installé remplacé par une nouvelle version) ----------
+
+static MAJ_EN_ATTENTE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Vrai si une nouvelle version a été posée par l'installeur depuis le lancement.
+#[tauri::command]
+fn maj_en_attente() -> bool {
+    MAJ_EN_ATTENTE.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Relance l'appli sur le fichier installé (la nouvelle version), puis ferme celle-ci.
+#[tauri::command]
+fn maj_relancer(app: AppHandle) -> Result<(), String> {
+    let chemin = maj::chemin_installe().ok_or("fichier de l'application introuvable")?;
+    maj::lancer_nouvelle_instance(&chemin)?;
+    app.exit(0);
+    Ok(())
+}
+
 #[tauri::command]
 fn db_infos(b: State<'_, Base>) -> Result<(String, String), String> {
     base::infos(&*verrou(b.inner())?)
@@ -223,15 +243,26 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             // Dossier de données propre à chaque système ; la clé vient du trousseau de l'OS.
+            // Relancé par « Mettre à jour » : l'ancienne instance a un instant pour se fermer avant qu'on ouvre la base.
+            std::thread::sleep(maj::attente_au_lancement());
             let dossier = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dossier)?;
             secrets::amorcer_depuis_env();
             let cle = secrets::cle_base()?;
             let conn = base::ouvrir(&dossier.join("foulee-chiffre.db"), &cle)?;
             app.manage(Base(Mutex::new(conn)));
+            // En développement, le binaire est recompilé en permanence : pas de surveillance (FOULEE_SURVEILLER_MAJ=chemin pour l'essayer).
+            let a_surveiller = std::env::var_os("FOULEE_SURVEILLER_MAJ").map(std::path::PathBuf::from).or_else(|| if cfg!(debug_assertions) { None } else { maj::chemin_installe() });
+            if let Some(chemin) = a_surveiller {
+                let a = app.handle().clone();
+                maj::surveiller(chemin, std::time::Duration::from_secs(3), std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), move || {
+                    MAJ_EN_ATTENTE.store(true, std::sync::atomic::Ordering::SeqCst);
+                    let _ = a.emit("maj-disponible", ());
+                });
+            }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos, secret_definir, secret_existe, secret_supprimer, navigateur_etat, navigateur_telecharger, navigateur_annuler, navigateur_tester, nolio_connecter, nolio_synchroniser, nolio_annuler])
+        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos, secret_definir, secret_existe, secret_supprimer, navigateur_etat, navigateur_telecharger, navigateur_annuler, navigateur_tester, nolio_connecter, nolio_synchroniser, nolio_annuler, maj_en_attente, maj_relancer])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Foulée");
 }
