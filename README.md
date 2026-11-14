@@ -13,6 +13,13 @@ Captures faites sur émulateur avec des données fictives. Le bandeau de synchro
   <img src="docs/images/profil.png" alt="Profil de coureur" width="190">
 </p>
 
+Thème sombre, sur téléphone :
+
+<p>
+  <img src="docs/images/accueil-sombre.png" alt="Accueil en thème sombre" width="190">
+  <img src="docs/images/profil-sombre.png" alt="Profil de coureur en thème sombre" width="190">
+</p>
+
 ## Fonctionnement
 
 - L'appli se connecte à Garmin Connect comme l'appli mobile Garmin (SSO, puis jetons OAuth, avec le code MFA si ton compte en a un). Le mot de passe n'est jamais conservé (il n'existe qu'en mémoire le temps de la connexion). Seuls les jetons de session sont gardés, chiffrés (AES-GCM, clé dans l'Android Keystore) dans le stockage privé de l'appli. Garmin n'a pas d'API publique pour les particuliers : cette connexion non officielle peut casser si Garmin la modifie.
