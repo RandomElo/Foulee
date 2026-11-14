@@ -5,6 +5,7 @@
 //! Les adresses internes viennent de l'observation d'une session réelle (docs/notes/nolio-points-d-acces.md) : elles ne sont pas
 //! documentées par Nolio et peuvent changer, d'où des erreurs lisibles plutôt que des données devinées.
 
+use crate::navigateur::Session;
 use rusqlite::{params, Connection};
 use serde::Deserialize;
 use serde_json::Value;
@@ -321,7 +322,6 @@ pub fn script_fenetre(debut: &str, fin: &str, fiches_jusqu_a: &str) -> Result<St
 /// Aucun champ n'est rempli par l'appli. Rend `Ok(())` une fois connecté, une erreur si la fenêtre est fermée, annulée ou trop longue.
 pub fn connecter(exe: &Path, profil: &Path, origine: &str, annule: &AtomicBool, delai: Duration) -> Result<(), String> {
     let mut s = crate::navigateur::lancer(exe, profil, true, &format!("{origine}/calendar/"))?;
-    let verif = script_fenetre("2026-01-05", "2026-01-05", "2000-01-01")?;
     let debut = Instant::now();
     let resultat = loop {
         if annule.load(Ordering::SeqCst) {
@@ -333,13 +333,9 @@ pub fn connecter(exe: &Path, profil: &Path, origine: &str, annule: &AtomicBool, 
         match s.urls_pages() {
             Err(_) => break Err("la fenêtre a été fermée avant la connexion".to_string()),
             Ok(urls) if urls.is_empty() => break Err("la fenêtre a été fermée avant la connexion".to_string()),
-            Ok(urls) => {
-                if urls.iter().any(|u| u.starts_with(&format!("{origine}/calendar"))) {
-                    // Page atteinte : on vérifie que la session répond vraiment (sans rien lire d'autre que l'état).
-                    let lecture: Result<Lecture, String> = s.evaluer(&format!("{origine}/calendar/"), &verif).and_then(|v| serde_json::from_value(v).map_err(|e| e.to_string()));
-                    if lecture.map(|l| l.connecte).unwrap_or(false) {
-                        break Ok(());
-                    }
+            Ok(_) => {
+                if verifier_connexion(&mut s, origine) {
+                    break Ok(());
                 }
             }
         }
@@ -347,6 +343,14 @@ pub fn connecter(exe: &Path, profil: &Path, origine: &str, annule: &AtomicBool, 
     };
     s.fermer();
     resultat
+}
+
+/// Vrai si la page du calendrier est ouverte ET que la session répond. Se fait dans la page de l'utilisateur, sans ouvrir d'onglet :
+/// un second onglet lui redemanderait ses identifiants pendant qu'il se connecte.
+pub fn verifier_connexion(s: &mut Session, origine: &str) -> bool {
+    let Ok(script) = script_fenetre("2026-01-05", "2026-01-05", "2000-01-01") else { return false };
+    let Ok(Some(v)) = s.evaluer_sur_page(&format!("{origine}/calendar"), &script) else { return false };
+    serde_json::from_value::<Lecture>(v).map(|l| l.connecte).unwrap_or(false)
 }
 
 #[derive(Debug, Default, serde::Serialize)]
@@ -689,6 +693,30 @@ mod tests {
         assert_eq!((bilan2.nouveaux, bilan2.modifies), (0, 0));
         let n: i64 = base.query_row("SELECT count(*) FROM nolio_evenements", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 6);
+        let _ = std::fs::remove_dir_all(&dossier);
+    }
+
+    #[test]
+    fn la_verification_de_connexion_n_ouvre_aucun_onglet_et_distingue_connecte_et_deconnecte() {
+        let Some(exe) = chromium_ou_ignorer() else { return };
+        for (connecte, nom) in [(true, "verif-oui"), (false, "verif-non")] {
+            let origine = faux_nolio(connecte);
+            let dossier = dossier_test(nom);
+            let mut s = crate::navigateur::lancer(&exe, &dossier.join("profil"), false, &format!("{origine}/calendar/")).unwrap();
+            // Laisse la page se charger comme le ferait l'utilisateur.
+            std::thread::sleep(Duration::from_millis(1500));
+            let avant = s.urls_pages().unwrap().len();
+            assert_eq!(verifier_connexion(&mut s, &origine), connecte);
+            assert_eq!(s.urls_pages().unwrap().len(), avant, "la vérification ne doit ouvrir ni fermer d'onglet");
+            s.fermer();
+            let _ = std::fs::remove_dir_all(&dossier);
+        }
+        // Aucune page du calendrier ouverte : pas connecté, sans erreur.
+        let origine = faux_nolio(true);
+        let dossier = dossier_test("verif-rien");
+        let mut s = crate::navigateur::lancer(&exe, &dossier.join("profil"), false, "about:blank").unwrap();
+        assert!(!verifier_connexion(&mut s, &origine));
+        s.fermer();
         let _ = std::fs::remove_dir_all(&dossier);
     }
 

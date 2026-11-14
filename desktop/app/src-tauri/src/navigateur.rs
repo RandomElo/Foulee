@@ -254,10 +254,13 @@ pub fn lancer(exe: &Path, profil: &Path, visible: bool, url: &str) -> Result<Ses
         .arg("--no-default-browser-check")
         .arg("--disable-features=Translate")
         .args(options_de_test());
-    if !visible {
-        cmd.arg("--headless=new");
+    if visible {
+        // Mode application : une seule page, sans onglets ni barre d'adresse (pas de recherche possible), pour guider la connexion.
+        cmd.arg(format!("--app={url}"));
+    } else {
+        cmd.arg("--headless=new").arg(url);
     }
-    cmd.arg(url).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    cmd.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
     let mut enfant = cmd.spawn().map_err(|e| format!("lancement du navigateur impossible : {e}"))?;
 
     let debut = Instant::now();
@@ -363,6 +366,19 @@ impl Session {
         })();
         let _ = self.appeler("Target.closeTarget", json!({ "targetId": cible }), None);
         r
+    }
+
+    /// Évalue `script` dans la page déjà ouverte dont l'adresse commence par `prefixe`, sans ouvrir ni fermer aucun onglet.
+    /// Rend `None` si aucune page ne correspond.
+    pub fn evaluer_sur_page(&mut self, prefixe: &str, script: &str) -> Result<Option<Value>, String> {
+        let r = self.appeler("Target.getTargets", json!({}), None)?;
+        let Some(cible) = r["targetInfos"].as_array().and_then(|a| a.iter().find(|t| t["type"] == "page" && t["url"].as_str().is_some_and(|u| u.starts_with(prefixe)))).and_then(|t| t["targetId"].as_str()).map(str::to_string) else {
+            return Ok(None);
+        };
+        let sid = self.appeler("Target.attachToTarget", json!({ "targetId": cible, "flatten": true }), None)?["sessionId"].as_str().ok_or("session non créée")?.to_string();
+        let v = self.evaluer_dans(&sid, script);
+        let _ = self.appeler("Target.detachFromTarget", json!({ "sessionId": sid }), None);
+        v.map(Some)
     }
 
     /// Adresses des onglets de page ouverts (pour savoir où en est l'utilisateur pendant la connexion).
