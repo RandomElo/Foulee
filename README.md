@@ -13,6 +13,13 @@ Captures faites sur émulateur avec des données fictives. Le bandeau de synchro
   <img src="docs/images/profil.png" alt="Profil de coureur" width="190">
 </p>
 
+Thème néo, sur téléphone :
+
+<p>
+  <img src="docs/images/accueil-neo.png" alt="Accueil en thème néo" width="190">
+  <img src="docs/images/fiche-fractionne-neo.png" alt="Fiche d'un fractionné en thème néo" width="190">
+</p>
+
 Thème sombre, sur téléphone :
 
 <p>
