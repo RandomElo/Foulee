@@ -29,8 +29,10 @@ Thumbs.db
 # Audit reports
 audits/
 
-# Claude configuration
+# Claude configuration (jamais poussée : règles et habitudes d'Eloi)
 .claude/
+CLAUDE.md
+CLAUDE.local.md
 
 # Android
 .gradle/

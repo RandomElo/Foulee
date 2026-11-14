@@ -1,6 +1,7 @@
 import { useData } from "../DataProvider";
 import { repo } from "../repo";
 import { useTheme } from "../theme/ThemeProvider";
+import { Sources } from "./Sources";
 import type { Family, Mode } from "../theme/themes";
 
 function Group<T extends string>({ label, value, options, onPick, disabled = false }: { label: string; value: T; options: [T, string][]; onPick: (v: T) => void; disabled?: boolean }) {
@@ -34,6 +35,7 @@ export function Reglages() {
         <input id="prenom" value={prenom} onChange={(e) => setPrenom(e.target.value)} placeholder="Ton prénom" autoComplete="off"
           className="w-full rounded-[10px] border-[length:var(--outline)] border-line bg-card px-3 py-2 text-ink" />
       </section>
+      <Sources />
       {import.meta.env.DEV ? (
         <section className="card" aria-labelledby="h-dev">
           <h2 className="title" id="h-dev">Développement</h2>

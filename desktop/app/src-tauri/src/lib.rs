@@ -35,6 +35,22 @@ fn db_batch(b: State<'_, Base>, lot: Vec<Ordre>) -> Result<usize, String> {
     base::executer_lot(&*verrou(b.inner())?, &lot)
 }
 
+/// L'interface peut écrire, tester la présence et effacer un secret ; elle ne peut jamais en lire un.
+#[tauri::command]
+fn secret_definir(nom: String, valeur: String) -> Result<(), String> {
+    secrets::definir(&nom, &valeur)
+}
+
+#[tauri::command]
+fn secret_existe(nom: String) -> Result<bool, String> {
+    secrets::existe(&nom)
+}
+
+#[tauri::command]
+fn secret_supprimer(nom: String) -> Result<(), String> {
+    secrets::supprimer(&nom)
+}
+
 #[tauri::command]
 fn db_infos(b: State<'_, Base>) -> Result<(String, String), String> {
     base::infos(&*verrou(b.inner())?)
@@ -47,12 +63,13 @@ pub fn run() {
             // Dossier de données propre à chaque système ; la clé vient du trousseau de l'OS.
             let dossier = app.path().app_data_dir()?;
             std::fs::create_dir_all(&dossier)?;
+            secrets::amorcer_depuis_env();
             let cle = secrets::cle_base()?;
             let conn = base::ouvrir(&dossier.join("foulee-chiffre.db"), &cle)?;
             app.manage(Base(Mutex::new(conn)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos])
+        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos, secret_definir, secret_existe, secret_supprimer])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Foulée");
 }
