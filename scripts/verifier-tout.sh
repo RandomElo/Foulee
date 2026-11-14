@@ -19,6 +19,12 @@ if [ -x "$BANC/run.sh" ]; then
     echo "puis régénère la référence : (cd $BANC && ./run.sh export-synth $RACINE/desktop/core/fixtures/synth.json)"
     rm -f "$TMP"; exit 1
   fi
+  (cd "$BANC" && ./run.sh export-charge "$TMP" >/dev/null)
+  if ! cmp -s "$TMP" "$RACINE/desktop/core/fixtures/charge.json"; then
+    echo "ÉCART : le calcul de charge, de forme ou de catégories Kotlin a changé. Reporte-le dans desktop/core/src,"
+    echo "puis régénère : (cd $BANC && ./run.sh export-charge $RACINE/desktop/core/fixtures/charge.json)"
+    rm -f "$TMP"; exit 1
+  fi
   rm -f "$TMP"
   if [ -f "$BANC/laps-reels.tsv" ]; then
     (cd "$BANC" && ./run.sh export-reels laps-reels.tsv "$RACINE/desktop/core/fixtures-locales/reels.json" >/dev/null)

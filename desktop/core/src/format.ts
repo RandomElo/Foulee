@@ -18,5 +18,5 @@ export function dec(value: number, digits = 1): string {
   return sign + String(entier) + (fraction ? "," + fraction : "");
 }
 
-/** Arrondi au plus proche, moitié vers le haut : `roundToInt()` de Kotlin. */
-export const roundToInt = (x: number): number => Math.floor(x + 0.5);
+/** `roundToInt()` de Kotlin = `Math.round` de Java : moitié vers le haut. */
+export const roundToInt = (x: number): number => Math.round(x);
