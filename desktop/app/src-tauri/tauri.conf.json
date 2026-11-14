@@ -14,7 +14,9 @@
       {
         "title": "Foulée",
         "width": 1100,
-        "height": 760
+        "height": 760,
+        "minWidth": 640,
+        "minHeight": 480
       }
     ],
     "security": {
