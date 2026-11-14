@@ -1,13 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capacités de la fenêtre principale : rien de plus que le noyau de Tauri. Les commandes db_* de l'application sont les seuls accès aux données ; le réseau passera par le Rust, pas par le webview.",
   "windows": ["main"],
-  "permissions": [
-    "core:default",
-    "sql:default",
-    "sql:allow-load",
-    "sql:allow-execute",
-    "sql:allow-select"
-  ]
+  "permissions": ["core:default"]
 }

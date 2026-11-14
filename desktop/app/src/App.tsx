@@ -2,15 +2,14 @@ import { useEffect, useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import { Activity } from "lucide-react";
 import { SCHEMA_VERSION } from "@foulee/core";
-import { base } from "./db";
+import { infos } from "./db";
 
 function Accueil() {
   const [etat, setEtat] = useState<string>("Ouverture de la base…");
 
   useEffect(() => {
-    base()
-      .then((db) => db.select<{ v: string }[]>("SELECT sqlite_version() AS v"))
-      .then((r) => setEtat(`Base locale prête (SQLite ${r[0]?.v ?? "?"}, schéma ${SCHEMA_VERSION})`))
+    infos()
+      .then(([sqlite, cipher]) => setEtat(`Base chiffrée prête (SQLite ${sqlite}, SQLCipher ${cipher}, schéma ${SCHEMA_VERSION})`))
       .catch((e) => setEtat(`Base inaccessible : ${String(e)}`));
   }, []);
 

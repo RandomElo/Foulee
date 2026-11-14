@@ -8,6 +8,7 @@
     "test": "npm run test -w core",
     "typecheck": "npm run typecheck -w core -w mcp -w app",
     "rust:check": "cargo check --manifest-path app/src-tauri/Cargo.toml",
-    "verifier": "npm run typecheck && npm test && npm run build -w app && npm run rust:check"
+    "rust:test": "cargo test --manifest-path app/src-tauri/Cargo.toml",
+    "verifier": "npm run typecheck && npm test && npm run build -w app && npm run rust:check && npm run rust:test"
   }
 }
