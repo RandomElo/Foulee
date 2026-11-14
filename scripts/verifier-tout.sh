@@ -11,6 +11,18 @@ BANC="$HOME/demo-claude/foulee/detection"
 if [ -x "$BANC/run.sh" ]; then
   echo "== Mobile : banc de détection (synthétique) =="
   (cd "$BANC" && ./build.sh && ./run.sh synth)
+  echo "== Parité : le Kotlin conclut-il toujours comme la référence du PC ? =="
+  TMP="$(mktemp)"
+  (cd "$BANC" && ./run.sh export-synth "$TMP" >/dev/null)
+  if ! cmp -s "$TMP" "$RACINE/desktop/core/fixtures/synth.json"; then
+    echo "ÉCART : la détection Kotlin a changé. Reporte la modification dans desktop/core/src/intervals.ts,"
+    echo "puis régénère la référence : (cd $BANC && ./run.sh export-synth $RACINE/desktop/core/fixtures/synth.json)"
+    rm -f "$TMP"; exit 1
+  fi
+  rm -f "$TMP"
+  if [ -f "$BANC/laps-reels.tsv" ]; then
+    (cd "$BANC" && ./run.sh export-reels laps-reels.tsv "$RACINE/desktop/core/fixtures-locales/reels.json" >/dev/null)
+  fi
 else
   echo "== Banc de détection absent ($BANC) : étape ignorée =="
 fi

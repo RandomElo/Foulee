@@ -55,3 +55,6 @@ docs/plans/
 # Version PC (Tauri)
 desktop/**/target/
 desktop/**/src-tauri/gen/
+
+# Séances réelles exportées pour les tests (données personnelles)
+desktop/core/fixtures-locales/
