@@ -557,14 +557,20 @@ mod tests {
         std::thread::spawn(move || {
             for flux in ecoute.incoming() {
                 let Ok(mut flux) = flux else { continue };
-                let mut tampon = [0u8; 4096];
-                let n = flux.read(&mut tampon).unwrap_or(0);
-                let requete = String::from_utf8_lossy(&tampon[..n]).to_string();
-                let chemin = requete.split_whitespace().nth(1).unwrap_or("/").to_string();
-                let (statut, type_, corps) = reponse(&chemin, connecte);
-                let en_tete = format!("HTTP/1.1 {statut}\r\nContent-Type: {type_}\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n", corps.len(), if statut.starts_with("302") { "Location: /login/\r\n" } else { "" });
-                let _ = flux.write_all(en_tete.as_bytes());
-                let _ = flux.write_all(corps.as_bytes());
+                // Une connexion par fil : Chrome ouvre des connexions de réserve qui n'envoient rien et ne doivent pas bloquer les autres.
+                std::thread::spawn(move || {
+                    let mut tampon = [0u8; 4096];
+                    let n = flux.read(&mut tampon).unwrap_or(0);
+                    if n == 0 {
+                        return;
+                    }
+                    let requete = String::from_utf8_lossy(&tampon[..n]).to_string();
+                    let chemin = requete.split_whitespace().nth(1).unwrap_or("/").to_string();
+                    let (statut, type_, corps) = reponse(&chemin, connecte);
+                    let en_tete = format!("HTTP/1.1 {statut}\r\nContent-Type: {type_}\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n", corps.len(), if statut.starts_with("302") { "Location: /login/\r\n" } else { "" });
+                    let _ = flux.write_all(en_tete.as_bytes());
+                    let _ = flux.write_all(corps.as_bytes());
+                });
             }
         });
         origine
@@ -683,7 +689,7 @@ mod tests {
             let dossier = dossier_test(nom);
             let mut s = crate::navigateur::lancer(&exe, &dossier.join("profil"), false, &format!("{origine}/calendar/")).unwrap();
             // Laisse la page se charger comme le ferait l'utilisateur.
-            std::thread::sleep(Duration::from_millis(1500));
+            crate::navigateur::attendre_page_chargee(&mut s, &origine);
             let avant = s.urls_pages().unwrap().len();
             assert_eq!(verifier_connexion(&mut s, &origine), connecte);
             assert_eq!(s.urls_pages().unwrap().len(), avant, "la vérification ne doit ouvrir ni fermer d'onglet");

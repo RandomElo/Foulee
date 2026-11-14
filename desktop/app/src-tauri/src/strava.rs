@@ -323,37 +323,44 @@ mod tests {
     fn faux_strava(connecte: bool, panne_page: Option<u32>, requetes: Arc<AtomicUsize>) -> String {
         let ecoute = TcpListener::bind("127.0.0.1:0").unwrap();
         let origine = format!("http://127.0.0.1:{}", ecoute.local_addr().unwrap().port());
-        let tout: Vec<Value> = (1..=5u32).map(|i| modele(1000 + i, &format!("Sortie {i}"), "2026-11-03", 6 + i as i64)).collect();
+        let tout: Arc<Vec<Value>> = Arc::new((1..=5u32).map(|i| modele(1000 + i, &format!("Sortie {i}"), "2026-11-03", 6 + i as i64)).collect());
         std::thread::spawn(move || {
             for flux in ecoute.incoming() {
                 let Ok(mut flux) = flux else { continue };
-                let mut tampon = [0u8; 4096];
-                let n = flux.read(&mut tampon).unwrap_or(0);
-                let requete = String::from_utf8_lossy(&tampon[..n]).to_string();
-                let chemin = requete.split_whitespace().nth(1).unwrap_or("/").to_string();
-                let (route, requete_q) = chemin.split_once('?').unwrap_or((chemin.as_str(), ""));
-                let (statut, type_, corps) = if route == "/athlete/training" {
-                    ("200 OK", "text/html", "<html><body>entraînement</body></html>".to_string())
-                } else if route == "/athlete/training_activities" {
-                    requetes.fetch_add(1, Ordering::SeqCst);
-                    let page: usize = requete_q.split('&').find_map(|p| p.strip_prefix("page=")).and_then(|v| v.parse().ok()).unwrap_or(1);
-                    let par_page: usize = requete_q.split('&').find_map(|p| p.strip_prefix("per_page=")).and_then(|v| v.parse().ok()).unwrap_or(20);
-                    if !connecte {
-                        ("302 Found", "text/plain", String::new())
-                    } else if panne_page == Some(page as u32) {
-                        ("500 Internal Server Error", "text/plain", "panne".into())
-                    } else {
-                        // Le faux serveur sert 2 activités par page quel que soit per_page (Strava peut répondre moins que demandé).
-                        let t = 2.min(par_page);
-                        let models: Vec<Value> = tout.iter().skip((page - 1) * t).take(t).cloned().collect();
-                        ("200 OK", "application/json", json!({ "models": models, "page": page, "perPage": t, "total": 5 }).to_string())
+                let (tout, requetes) = (tout.clone(), requetes.clone());
+                // Une connexion par fil : Chrome ouvre des connexions de réserve qui n'envoient rien et ne doivent pas bloquer les autres.
+                std::thread::spawn(move || {
+                    let mut tampon = [0u8; 4096];
+                    let n = flux.read(&mut tampon).unwrap_or(0);
+                    if n == 0 {
+                        return;
                     }
-                } else {
-                    ("404 Not Found", "text/plain", "inconnu".into())
-                };
-                let en_tete = format!("HTTP/1.1 {statut}\r\nContent-Type: {type_}\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n", corps.len(), if statut.starts_with("302") { "Location: /login\r\n" } else { "" });
-                let _ = flux.write_all(en_tete.as_bytes());
-                let _ = flux.write_all(corps.as_bytes());
+                    let requete = String::from_utf8_lossy(&tampon[..n]).to_string();
+                    let chemin = requete.split_whitespace().nth(1).unwrap_or("/").to_string();
+                    let (route, requete_q) = chemin.split_once('?').unwrap_or((chemin.as_str(), ""));
+                    let (statut, type_, corps) = if route == "/athlete/training" {
+                        ("200 OK", "text/html", "<html><body>entraînement</body></html>".to_string())
+                    } else if route == "/athlete/training_activities" {
+                        requetes.fetch_add(1, Ordering::SeqCst);
+                        let page: usize = requete_q.split('&').find_map(|p| p.strip_prefix("page=")).and_then(|v| v.parse().ok()).unwrap_or(1);
+                        let par_page: usize = requete_q.split('&').find_map(|p| p.strip_prefix("per_page=")).and_then(|v| v.parse().ok()).unwrap_or(20);
+                        if !connecte {
+                            ("302 Found", "text/plain", String::new())
+                        } else if panne_page == Some(page as u32) {
+                            ("500 Internal Server Error", "text/plain", "panne".into())
+                        } else {
+                            // Le faux serveur sert 2 activités par page quel que soit per_page (Strava peut répondre moins que demandé).
+                            let t = 2.min(par_page);
+                            let models: Vec<Value> = tout.iter().skip((page - 1) * t).take(t).cloned().collect();
+                            ("200 OK", "application/json", json!({ "models": models, "page": page, "perPage": t, "total": 5 }).to_string())
+                        }
+                    } else {
+                        ("404 Not Found", "text/plain", "inconnu".into())
+                    };
+                    let en_tete = format!("HTTP/1.1 {statut}\r\nContent-Type: {type_}\r\nContent-Length: {}\r\nConnection: close\r\n{}\r\n", corps.len(), if statut.starts_with("302") { "Location: /login\r\n" } else { "" });
+                    let _ = flux.write_all(en_tete.as_bytes());
+                    let _ = flux.write_all(corps.as_bytes());
+                });
             }
         });
         origine
@@ -458,7 +465,8 @@ mod tests {
             let origine = faux_strava(connecte, None, Arc::new(AtomicUsize::new(0)));
             let dossier = dossier_test(nom);
             let mut s = crate::navigateur::lancer(&exe, &dossier.join("profil"), false, &format!("{origine}/athlete/training")).unwrap();
-            std::thread::sleep(Duration::from_millis(1500));
+            // Laisse la page se charger comme le ferait l'utilisateur.
+            crate::navigateur::attendre_page_chargee(&mut s, &origine);
             let avant = s.urls_pages().unwrap().len();
             assert_eq!(verifier_connexion(&mut s, &origine), connecte);
             assert_eq!(s.urls_pages().unwrap().len(), avant, "la vérification ne doit ouvrir ni fermer d'onglet");

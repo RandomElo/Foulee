@@ -436,6 +436,25 @@ impl Session {
     }
 }
 
+/// Pour les tests : attend (jusqu'à 30 s) que la page dont l'adresse commence par `prefixe` ait fini de charger, au lieu d'une pause fixe
+/// qui échoue sur les machines lentes (CI Windows).
+#[cfg(test)]
+pub fn attendre_page_chargee(s: &mut Session, prefixe: &str) {
+    let debut = Instant::now();
+    while debut.elapsed() < Duration::from_secs(30) {
+        // Pendant la navigation, la cible annonce déjà la nouvelle adresse alors que le document affiché est encore la page vide initiale
+        // (déjà « complete ») : on vérifie donc aussi l'adresse du document lui-même.
+        let script = format!("document.readyState === 'complete' && location.href.startsWith({})", json!(prefixe));
+        if let Ok(Some(v)) = s.evaluer_sur_page(prefixe, &script) {
+            if v == json!(true) {
+                return;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("la page {prefixe} n'a pas fini de charger en 30 s");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
