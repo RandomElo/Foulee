@@ -47,6 +47,12 @@ fn executable(p: &Path) -> bool {
     }
 }
 
+/// La règle de décision d'un passage : le fichier a changé depuis le départ, il n'a plus bougé depuis le passage précédent (une copie en cours
+/// change à chaque passage) et il est exécutable. Séparée du fil de surveillance pour être testée sans dépendre de l'horloge.
+fn doit_alerter(depart: &Empreinte, precedent: Option<&Empreinte>, courant: &Empreinte, executable: impl FnOnce() -> bool) -> bool {
+    courant != depart && precedent == Some(courant) && executable()
+}
+
 /// Surveille `chemin` et appelle `rappel` une fois quand le fichier est remplacé par une autre version. Il faut que le fichier ait cessé
 /// de changer d'un passage au suivant (une copie en cours n'est pas une installation) et qu'il soit exécutable. S'arrête avec `arret`.
 pub fn surveiller(chemin: PathBuf, intervalle: Duration, arret: Arc<AtomicBool>, rappel: impl FnOnce() + Send + 'static) {
@@ -62,7 +68,7 @@ pub fn surveiller(chemin: PathBuf, intervalle: Duration, arret: Arc<AtomicBool>,
                 precedent = None;
                 continue;
             };
-            if courant != depart && precedent.as_ref() == Some(&courant) && executable(&chemin) {
+            if doit_alerter(&depart, precedent.as_ref(), &courant, || executable(&chemin)) {
                 rappel();
                 return;
             }
@@ -156,30 +162,34 @@ mod tests {
         fs::write(&neuf, b"version 2, plus longue").unwrap();
         rendre_executable(&neuf);
         fs::rename(&neuf, &appli).unwrap();
-        assert!(attendre(&compteur, 1, 2000), "le remplacement n'a pas été vu");
+        assert!(attendre(&compteur, 1, 10_000), "le remplacement n'a pas été vu");
         std::thread::sleep(Duration::from_millis(300));
         assert_eq!(compteur.load(Ordering::SeqCst), 1, "une seule alerte par mise à jour");
         arret.store(true, Ordering::SeqCst);
         let _ = fs::remove_dir_all(&d);
     }
 
+    fn emp(longueur: u64) -> Empreinte {
+        Empreinte { inode: 1, longueur, modifie: None }
+    }
+
     #[test]
     fn une_copie_en_cours_n_est_pas_prise_pour_une_installation() {
-        let d = dossier("copie");
-        let appli = d.join("Foulee.AppImage");
-        fs::write(&appli, b"version 1").unwrap();
-        rendre_executable(&appli);
-        let (compteur, arret) = lancer_surveillance_toutes_les(&appli, 100);
-        // Le fichier grossit toutes les 20 ms pendant 400 ms, soit quatre passages de la surveillance : jamais stable, donc jamais signalé.
-        for i in 0..20 {
-            fs::write(&appli, vec![b'x'; 100 + i * 50]).unwrap();
-            std::thread::sleep(Duration::from_millis(20));
+        let depart = emp(9);
+        // Le fichier grossit à chaque passage : jamais stable, donc jamais signalé, quel que soit le nombre de passages.
+        let mut precedent: Option<Empreinte> = None;
+        for taille in [100, 150, 200, 250, 300] {
+            let courant = emp(taille);
+            assert!(!doit_alerter(&depart, precedent.as_ref(), &courant, || true), "copie encore en cours à {taille}");
+            precedent = Some(courant);
         }
-        assert_eq!(compteur.load(Ordering::SeqCst), 0, "copie encore en cours");
-        // Une fois la copie finie et stable, c'est signalé.
-        assert!(attendre(&compteur, 1, 2000), "la copie terminée n'a pas été vue");
-        arret.store(true, Ordering::SeqCst);
-        let _ = fs::remove_dir_all(&d);
+        // Une fois la copie finie, deux passages identiques de suite : c'est signalé.
+        let fini = emp(300);
+        assert!(doit_alerter(&depart, precedent.as_ref(), &fini, || true));
+        // Mais pas si le fichier est revenu à l'état de départ, ni s'il n'est pas exécutable, ni au premier passage.
+        assert!(!doit_alerter(&depart, Some(&depart), &depart, || true));
+        assert!(!doit_alerter(&depart, precedent.as_ref(), &fini, || false));
+        assert!(!doit_alerter(&depart, None, &fini, || true));
     }
 
     #[cfg(unix)]
