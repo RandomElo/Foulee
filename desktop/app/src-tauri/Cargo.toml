@@ -25,6 +25,10 @@ keyring = "4"
 getrandom = "0.3"
 hex = "0.4.3"
 rusqlite = { version = "0.42.0", features = ["bundled-sqlcipher-vendored-openssl"] }
+ureq = "3"
+sha2 = "0.10"
+tungstenite = "0.26"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
