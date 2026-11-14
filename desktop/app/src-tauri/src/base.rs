@@ -9,6 +9,42 @@ use std::path::Path;
 /// Une entrée par version, jamais modifiée après publication.
 const MIGRATIONS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS reglages (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL);",
+    // 2 : séances, tours, corrections de rôle, santé du jour, ressenti
+    "CREATE TABLE activities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        start_local TEXT NOT NULL,
+        type TEXT NOT NULL,
+        distance REAL, duration REAL, avg_speed REAL, avg_hr REAL, max_hr REAL,
+        training_load REAL, name TEXT NOT NULL DEFAULT '', elevation REAL,
+        manual_category TEXT, trimp REAL,
+        UNIQUE (source, external_id)
+     );
+     CREATE INDEX activities_start ON activities (start_local);
+     CREATE TABLE laps (
+        activity_id INTEGER NOT NULL REFERENCES activities (id) ON DELETE CASCADE,
+        idx INTEGER NOT NULL,
+        distance REAL, duration REAL, avg_speed REAL, avg_hr REAL, max_hr REAL,
+        elevation_gain REAL, intensity_type TEXT, step_index INTEGER,
+        PRIMARY KEY (activity_id, idx)
+     );
+     CREATE TABLE lap_roles (
+        activity_id INTEGER NOT NULL REFERENCES activities (id) ON DELETE CASCADE,
+        idx INTEGER NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('WARMUP', 'WORK', 'RECOVERY', 'COOLDOWN', 'OTHER')),
+        PRIMARY KEY (activity_id, idx)
+     );
+     CREATE TABLE daily (
+        date TEXT PRIMARY KEY,
+        resting_hr REAL, avg_stress REAL, body_battery_high REAL,
+        sleep_seconds REAL, sleep_score REAL, hrv_night REAL, steps REAL
+     );
+     CREATE TABLE feelings (
+        activity_id INTEGER PRIMARY KEY REFERENCES activities (id) ON DELETE CASCADE,
+        form INTEGER, legs INTEGER, motivation INTEGER, pain INTEGER, note TEXT,
+        answered_at TEXT NOT NULL
+     );",
 ];
 
 /// Ouvre (ou crée) la base chiffrée avec une clé de 32 octets en hexadécimale, puis joue les migrations.
@@ -82,6 +118,18 @@ pub fn executer(conn: &Connection, sql: &str, params: &[Json]) -> Result<usize, 
     conn.execute(sql, params_from_iter(valeurs)).map_err(|e| e.to_string())
 }
 
+/// Plusieurs écritures en une seule transaction : tout passe ou rien (import, synchro).
+pub fn executer_lot(conn: &Connection, lot: &[(String, Vec<Json>)]) -> Result<usize, String> {
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
+    let mut total = 0;
+    for (sql, params) in lot {
+        let valeurs = params.iter().map(vers_sql).collect::<Result<Vec<_>, _>>()?;
+        total += tx.execute(sql, params_from_iter(valeurs)).map_err(|e| format!("{e} (requête : {sql})"))?;
+    }
+    tx.commit().map_err(|e| e.to_string())?;
+    Ok(total)
+}
+
 /// Versions de SQLite et de SQLCipher : prouve que le chiffrement est bien actif.
 pub fn infos(conn: &Connection) -> Result<(String, String), String> {
     let sqlite: String = conn.query_row("SELECT sqlite_version()", [], |r| r.get(0)).map_err(|e| e.to_string())?;
@@ -126,6 +174,50 @@ mod tests {
         let p = chemin("b");
         ouvrir(&p, CLE_A).unwrap();
         assert!(ouvrir(&p, CLE_B).is_err());
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn un_lot_est_atomique_et_les_tables_de_seances_existent() {
+        let p = chemin("e");
+        let c = ouvrir(&p, CLE_A).unwrap();
+        let ok = vec![
+            ("INSERT INTO activities (source, external_id, start_local, type) VALUES (?, ?, ?, ?)".to_string(), vec![Json::from("garmin"), Json::from("1"), Json::from("2026-11-01 08:00:00"), Json::from("running")]),
+            ("INSERT INTO laps (activity_id, idx, distance, duration) VALUES (1, 0, 1000.0, 300.0)".to_string(), vec![]),
+        ];
+        assert_eq!(executer_lot(&c, &ok).unwrap(), 2);
+        // Le second ordre est invalide (clé étrangère inexistante) : le premier doit être annulé aussi.
+        let ko = vec![
+            ("INSERT INTO activities (source, external_id, start_local, type) VALUES ('garmin', '2', '2026-11-02 08:00:00', 'running')".to_string(), vec![]),
+            ("INSERT INTO laps (activity_id, idx) VALUES (999, 0)".to_string(), vec![]),
+        ];
+        assert!(executer_lot(&c, &ko).is_err());
+        let n = selectionner(&c, "SELECT count(*) AS n FROM activities", &[]).unwrap();
+        assert_eq!(n[0]["n"], Json::from(1));
+        // Suppression en cascade : les tours partent avec la séance.
+        executer(&c, "DELETE FROM activities WHERE id = 1", &[]).unwrap();
+        let l = selectionner(&c, "SELECT count(*) AS n FROM laps", &[]).unwrap();
+        assert_eq!(l[0]["n"], Json::from(0));
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn une_base_deja_a_la_version_1_monte_a_la_derniere() {
+        let p = chemin("f");
+        {
+            // Comme la base de dev d'avant : seule la migration 1 est jouée.
+            let c = Connection::open(&p).unwrap();
+            c.pragma_update(None, "key", format!("x'{CLE_A}'")).unwrap();
+            c.execute_batch(MIGRATIONS[0]).unwrap();
+            c.execute("INSERT INTO reglages (cle, valeur) VALUES ('garde', 'oui')", []).unwrap();
+            c.pragma_update(None, "user_version", 1i64).unwrap();
+        }
+        let c = ouvrir(&p, CLE_A).unwrap();
+        let v: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(v as usize, MIGRATIONS.len());
+        let r = selectionner(&c, "SELECT valeur FROM reglages WHERE cle = 'garde'", &[]).unwrap();
+        assert_eq!(r[0]["valeur"], Json::from("oui"), "les données existantes doivent survivre à la migration");
+        assert!(selectionner(&c, "SELECT count(*) AS n FROM feelings", &[]).is_ok());
         let _ = fs::remove_file(&p);
     }
 

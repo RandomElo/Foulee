@@ -11,3 +11,6 @@ export const execute = (sql: string, params: Param[] = []) => invoke<number>("db
 
 /** [version de SQLite, version de SQLCipher] */
 export const infos = () => invoke<[string, string]>("db_infos");
+
+/** Plusieurs écritures dans une même transaction : tout passe ou rien. */
+export const batch = (lot: { sql: string; params: Param[] }[]) => invoke<number>("db_batch", { lot });

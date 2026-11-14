@@ -23,6 +23,18 @@ fn db_execute(b: State<'_, Base>, sql: String, params: Vec<Value>) -> Result<usi
     base::executer(&*verrou(b.inner())?, &sql, &params)
 }
 
+#[derive(serde::Deserialize)]
+struct Ordre {
+    sql: String,
+    params: Vec<Value>,
+}
+
+#[tauri::command]
+fn db_batch(b: State<'_, Base>, lot: Vec<Ordre>) -> Result<usize, String> {
+    let lot: Vec<(String, Vec<Value>)> = lot.into_iter().map(|o| (o.sql, o.params)).collect();
+    base::executer_lot(&*verrou(b.inner())?, &lot)
+}
+
 #[tauri::command]
 fn db_infos(b: State<'_, Base>) -> Result<(String, String), String> {
     base::infos(&*verrou(b.inner())?)
@@ -40,7 +52,7 @@ pub fn run() {
             app.manage(Base(Mutex::new(conn)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_infos])
+        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Foulée");
 }

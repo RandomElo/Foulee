@@ -356,15 +356,30 @@ interface Bucket {
   reps: LapInfo[];
 }
 
-export function analyze(laps: Lap[], recoveryModes: Map<string, boolean> = new Map()): IntervalAnalysis | null {
-  const usable = laps.filter((l) => l.distance !== null && d0(l.duration) > 0);
+/**
+ * Rôles choisis à la main, un par tour de la liste d'origine (null : on garde celui qui a été trouvé).
+ * Extension de la version PC : le Kotlin n'a pas encore cette correction manuelle.
+ */
+export type RoleOverrides = (LapRole | null)[];
+
+export function analyze(laps: Lap[], recoveryModes: Map<string, boolean> = new Map(), overrides?: RoleOverrides): IntervalAnalysis | null {
+  const kept: number[] = [];
+  laps.forEach((l, i) => { if (l.distance !== null && d0(l.duration) > 0) kept.push(i); });
+  const usable = kept.map((i) => laps[i] as Lap);
   if (usable.length < 3) return null;
 
   const tagged = structuredRoles(usable);
-  const roles = tagged ?? inferredRoles(usable);
+  const forced = overrides !== undefined && overrides.some((o) => o !== null);
+  let roles = tagged ?? inferredRoles(usable);
+  if (forced) {
+    // Le point de départ est ce que la détection a trouvé (ou rien), puis les choix de l'utilisateur l'emportent.
+    const base: LapRole[] = roles ?? usable.map(() => "OTHER");
+    roles = base.map((r, i) => (overrides as RoleOverrides)[kept[i] as number] ?? r);
+    if (roles.filter((r) => r === "WORK").length < 2) return null;
+  }
   if (!roles) return null;
   const infos: LapInfo[] = usable.map((lap, i) => ({ lap, role: roles[i] as LapRole, group: null, rep: null, kind: null }));
-  if (infos.filter((i) => i.role === "WORK").every((i) => d0(i.lap.distance) >= 5000) && !hasRealRecovery(infos)) return null;
+  if (!forced && infos.filter((i) => i.role === "WORK").every((i) => d0(i.lap.distance) >= 5000) && !hasRealRecovery(infos)) return null;
 
   const timedSession = tagged === null && isTimedSession(infos.filter((i) => i.role === "WORK"));
   const sameType = (b: Bucket, d: number): boolean => {
@@ -533,4 +548,24 @@ export function layout(a: IntervalAnalysis): Layout {
   });
   for (const [l, r] of after) if (r !== null) entries.push([l, r]);
   return { efforts: parts.join(" + "), entries, block: true };
+}
+
+export type RoleSource = "garmin" | "deduit" | "manuel" | "aucun";
+
+/**
+ * Le rôle de chaque tour de la liste d'origine, et d'où il vient : la montre (séance structurée), la déduction par les allures
+ * (tours pressés à la main), le choix de l'utilisateur. Sert à demander une vérification quand les tours sont déduits.
+ */
+export function describeLaps(laps: Lap[], overrides?: RoleOverrides): { roles: LapRole[]; source: RoleSource; analysis: IntervalAnalysis | null } {
+  const analysis = analyze(laps, new Map(), overrides);
+  const forced = overrides !== undefined && overrides.some((o) => o !== null);
+  const roles: LapRole[] = laps.map(() => "OTHER");
+  if (analysis) {
+    let k = 0;
+    laps.forEach((l, i) => {
+      if (l.distance !== null && d0(l.duration) > 0) roles[i] = (analysis.laps[k++] as LapInfo).role;
+    });
+  }
+  const source: RoleSource = !analysis ? "aucun" : forced ? "manuel" : analysis.structured ? "garmin" : "deduit";
+  return { roles, source, analysis };
 }
