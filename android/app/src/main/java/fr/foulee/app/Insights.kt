@@ -20,6 +20,15 @@ class Factor(val key: String, val label: String, val display: String, val note: 
     val status get() = if (z <= -1) "low" else if (z >= 0.8) "good" else "normal"
 }
 
+/** The "Charge globale" of a day or of a moment, on 20, with the figures the explanation shows (see [GlobalLoadModel]). */
+class GlobalParts(
+    val total: Double, val trainingRatio: Double, val volumeRatio: Double?, val ratio: Double, val deficit: Double, val unfavorable: List<Pair<String, Double>>,
+    val hasNight: Boolean,
+    /** The watch gave something that day: without any sync the day is grey in the graph */
+    val hasWatch: Boolean,
+    val weekKm: Double, val weekSessions: Int, val readiness: Int?,
+)
+
 class Readiness(val date: String, val score: Int, val label: String, val factors: List<Factor>)
 
 /** One calendar day of the load model. Week and month are on 20, fatigue on 10. */
@@ -38,9 +47,20 @@ class Analysis(
     val weekRef: Double,
     /** Readiness of any day: `readinessOn(date, dayWhoseStressCounts)` */
     val readinessOn: (String, String) -> Readiness?,
+    /** "Charge globale" of any day with its parts (see [GlobalLoadModel]) */
+    val globalPartsOn: (String) -> GlobalParts?,
+    /** The same right after a session: what the notification, the Strava text and the page of the session say */
+    val globalAfter: (ActivityRow) -> GlobalParts?,
 ) {
+    val globalOn: (String) -> Double? = { d -> globalPartsOn(d)?.total }
+    fun globalLoadOn(a: ActivityRow): Double? = globalAfter(a)?.total
+    val globalToday: Double? get() = load.lastOrNull()?.let { globalOn(it.date) }
+
+    /** The form of the morning, only when this morning's night is on the phone: no sync of the watch, no form of the day. */
+    val readinessToday: Readiness? get() = readiness?.takeIf { it.date == java.time.LocalDate.now().toString() }
+
     /** Load of one session: Garmin's training load, or a heart-rate estimate without it. */
-    fun loadOf(a: ActivityRow): Double? = if ((a.trainingLoad ?: 0.0) > 0) a.trainingLoad else Insights.trimp(a, refs)?.times(trimpRatio)
+    fun loadOf(a: ActivityRow): Double? = Insights.trimp(a, refs)?.times(Insights.TRIMP_TO_LOAD)
 
     /** Effort of a session on 10 (saturating curve) */
     fun effortOf(a: ActivityRow): Double? = loadOf(a)?.let { (100 * (1 - exp(-it / 200))).roundToInt() / 10.0 }
@@ -61,6 +81,8 @@ class Analysis(
  * - readiness, 0-100: last night and recent days against the athlete's own habits, plus the fatigue of the day before.
  */
 object Insights {
+    /** Scale from TRIMP points to the load scale the rest of the app was tuned on (the median of Garmin's own ratio on his sessions was 1.3). */
+    const val TRIMP_TO_LOAD = 1.3
     private const val WEEK = 7
     private const val MONTH = 28
 
@@ -71,7 +93,17 @@ object Insights {
         val last = load.size - 1
         val before = (1..3).mapNotNull { k -> model.week.getOrNull(last - WEEK * k)?.let { on20(it, model.weekRef) } }
         val byDate = daily.associateBy { it.date }
-        return Analysis(latestReadiness(byDate, model), load, before.takeIf { it.size == 3 }?.average(), model.refs, model.ratio, model.weekRef) { date, stressDay -> readinessOn(byDate, model, date, stressDay) }
+        val readinessAt = { date: String, stressDay: String -> readinessOn(byDate, model, date, stressDay) }
+        val global = GlobalLoadModel(db.activities(), daily, model.refs, today)
+        fun parts(core: GlobalCore?, date: String): GlobalParts? = core?.let {
+            val i = model.index[date]
+            GlobalParts(it.note, it.trainingRatio, it.volumeRatio, it.ratio, it.deficit, it.unfavorable, it.hasNight, it.hasWatch, i?.let { k -> model.weekKm[k] } ?: 0.0, i?.let { k -> model.weekSessions[k] } ?: 0,
+                readinessAt(date, LocalDate.parse(date).minusDays(1).toString())?.score)
+        }
+        return Analysis(
+            latestReadiness(byDate, model), load, before.takeIf { it.size == 3 }?.average(), model.refs, model.ratio, model.weekRef, readinessAt,
+            { date -> parts(global.on(date), date) }, { a -> parts(global.after(a), a.startLocal.take(10)) },
+        )
     }
 
     fun zoneOf(fatigue: Double) = when {
@@ -130,14 +162,17 @@ object Insights {
         val weekRef: Double
         val monthRef: Double
         val refs: HrRefs = hrRefs(activities, daily, today)
-        val ratio: Double = trimpToLoad(activities, refs)
+        val ratio: Double = TRIMP_TO_LOAD
 
         init {
             val perDay = HashMap<String, Triple<Double, Double, Int>>()
+            // A warm-up and a cool-down around a hard session are part of it: they are not sessions of their own
+            val sessionsOfDay = activities.groupBy { it.startLocal.take(10) }.mapValues { (_, list) -> SessionCount.ofDay(list.filter { it.isRun }) + list.count { !it.isRun } }
             for (a in activities) {
-                val load = if ((a.trainingLoad ?: 0.0) > 0) a.trainingLoad!! else (trimp(a, refs)?.times(ratio) ?: 0.0)
+                // Our own heart-rate load (TRIMP): Garmin's training load is not used
+                val load = trimp(a, refs)?.times(ratio) ?: 0.0
                 val (l, km, n) = perDay[a.startLocal.take(10)] ?: Triple(0.0, 0.0, 0)
-                perDay[a.startLocal.take(10)] = Triple(l + load, km + (a.distance ?: 0.0) / 1000, n + 1)
+                perDay[a.startLocal.take(10)] = Triple(l + load, km + (a.distance ?: 0.0) / 1000, sessionsOfDay.getValue(a.startLocal.take(10)))
             }
             val loads = ArrayList<Double>()
             val kms = ArrayList<Double>()
@@ -175,7 +210,8 @@ object Insights {
     private fun hrRefs(activities: List<ActivityRow>, daily: List<DailyRow>, today: LocalDate): HrRefs {
         val rests = daily.filter { it.date >= today.minusDays(30).toString() }.mapNotNull { it.restingHr }
         val maxes = activities.filter { it.startLocal.take(10) >= today.minusDays(730).toString() }.mapNotNull { it.maxHr }.sortedDescending()
-        return HrRefs(if (rests.isEmpty()) 50.0 else mean(rests).roundToInt().toDouble(), maxes.getOrNull((maxes.size * 0.01).toInt()) ?: 190.0)
+        // What he typed in his settings wins over what the data says
+        return HrRefs(UserRefs.hrRest.takeIf { it > 0 }?.toDouble() ?: if (rests.isEmpty()) 50.0 else mean(rests).roundToInt().toDouble(), UserRefs.hrMax.takeIf { it > 0 }?.toDouble() ?: maxes.getOrNull((maxes.size * 0.01).toInt()) ?: 190.0)
     }
 
     /** Banister TRIMP: from the stored heart-rate curve when there is one, else from the average heart rate. */

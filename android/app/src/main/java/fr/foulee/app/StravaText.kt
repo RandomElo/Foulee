@@ -7,13 +7,6 @@ import kotlin.math.pow
 class StravaText(val name: String, val description: String, val interval: Boolean = true)
 
 object StravaTextBuilder {
-    /** Race paces in seconds per km (5 km 16:48, 10 km 37:02, half marathon 1:23:48), the marathon from the half with Riegel's formula. */
-    private val RACE_PACES = listOf(
-        "5 km" to (16 * 60 + 48.0) / 5,
-        "10 km" to (37 * 60 + 2.0) / 10,
-        "semi" to (83 * 60 + 48.0) / 21.0975,
-        "marathon" to (83 * 60 + 48.0) * 2.0.pow(1.06) / 42.195,
-    )
     private const val SPE_TOLERANCE = 0.025
     private const val SPE_MIN_REP_METERS = 800.0
     private const val SPE_MIN_REP_SECONDS = 150.0
@@ -26,7 +19,7 @@ object StravaTextBuilder {
             .maxByOrNull { it.reps.size * it.avgDistance } ?: return null
         if (main.avgSpeed <= 0) return null
         val pace = 1000 / main.avgSpeed
-        val (label, ref) = RACE_PACES.minByOrNull { abs(it.second - pace) } ?: return null
+        val (label, ref) = UserRefs.racePaces().minByOrNull { abs(it.second - pace) } ?: return null
         return label.takeIf { abs(pace - ref) / ref <= SPE_TOLERANCE }
     }
 
@@ -39,37 +32,37 @@ object StravaTextBuilder {
     private fun repsOf(g: RepGroup) = "${if (g.reps.size > 1) "${g.reps.size} × " else ""}${g.label}"
 
     /** Eloi's way of writing it on Strava: plain spaces, "x", "sec". */
-    private fun plain(text: String) = text.replace('\u00a0', ' ').replace('×', 'x').replace(Regex("(\\d) s\\b"), "$1 sec")
+    fun plain(text: String) = text.replace('\u00a0', ' ').replace('×', 'x').replace(Regex("(\\d) s\\b"), "$1 sec")
 
     /**
-     * "Fractionné - 5 × 1000 m (spé 10 km)" as the name; the description gives each type with its average pace and its recovery,
-     * then the two form figures, then the signature. A figure that is unknown is left out.
+     * "Spé 5 km - 2000 m + 1000 m + 5 x 200 m ( r : 2 min 30 + 3 min + 100 m )" as the name. The description is one line per type of effort with its
+     * average pace ("1000 m : 3 min 21 / km", never the number of reps: it is in the name), the remark on the session when there is one, "Charge 14,9/20 (Progression)", the review of the week on a Sunday, then the signature.
+     * A figure that is unknown is left out.
      */
-    fun build(analysis: IntervalAnalysis, weekLoad: Double?, readiness: Int?, speciality: String?): StravaText {
+    fun build(analysis: IntervalAnalysis, load: Double?, remark: String?, speciality: String?, week: WeekReview? = null, recovery: String? = null): StravaText {
         val spe = speciality?.takeIf { it != "none" }
-        // "Spé 5 km - 2000 m + 1000 m + 5 x 200 m ( r : 2 min 30 + 3 min + 100 m )": the recoveries once at the end, one per type of effort
-        val recoveries = analysis.groups.mapNotNull { it.recovery?.label }.let { all -> if (all.distinct().size == 1) all.distinct() else all }
-        val name = plain((if (spe != null) "Spé $spe - " else "Fractionné - ") + analysis.groups.joinToString(" + ") { repsOf(it) } +
-            if (recoveries.isNotEmpty()) " ( r : ${recoveries.joinToString(" + ")} )" else "")
-        // The recoveries are already in the name: one line per type of effort, with its average pace
-        val lines = analysis.groups.map { g -> "${plain(repsOf(g))} : ${pace(g.avgSpeed)}" }
-        return StravaText(name, describe(lines.joinToString("\n"), weekLoad, readiness))
+        // "Spé 5 km - 2000 m + 1000 m + 5 x 200 m ( r : 2 min 30 + 3 min + 100 m )": the recoveries once at the end, one per type of effort. With four or more
+        // of them the title would be a wall: they go in the description instead.
+        val layout = Intervals.layout(analysis)
+        val inName = layout.entries.size < Intervals.MAX_RECOVERIES_IN_TITLE
+        val recoveries = layout.entries.map { it.second }.let { all -> if (all.distinct().size == 1) all.distinct() else all }
+        val name = plain((if (spe != null) "Spé $spe - " else "Fractionné - ") + layout.efforts +
+            if (inName && recoveries.isNotEmpty()) " ( r : ${recoveries.joinToString(" + ")} )" else "")
+        val lines = analysis.groups.map { g -> "${plain(g.label)} : ${pace(g.avgSpeed)}" } +
+            (if (!inName) listOf(plain("Récups : " + layout.entries.joinToString(" · ") { (element, rec) -> "$element : $rec" })) else emptyList())
+        return StravaText(name, describe(lines, load, remark, week, recovery))
     }
 
-    /** The two form figures after the lines of the session, then the signature. A figure that is unknown is left out. */
-    private fun describe(lines: String, weekLoad: Double?, readiness: Int?): String {
-        val form = listOfNotNull(
-            weekLoad?.let { "Charge d'entraînement : ${Fmt.num(it)} / 20" },
-            readiness?.let { "Forme du jour : $it / 100" },
-        )
-        return (listOf(lines) + listOfNotNull(form.takeIf { it.isNotEmpty() }?.joinToString("\n")) + SIGNATURE).joinToString("\n\n")
-    }
+    /** "Charge 14,9/20 (Progression)": the figure with the term of training it falls in. */
+    fun figures(load: Double?): String? = load?.let { "Charge ${Fmt.num(it)}/20 (${LoadZones.of(it).label})" }
+
+    private fun describe(lines: List<String>, load: Double?, remark: String?, week: WeekReview?, recovery: String?): String =
+        (lines + listOfNotNull(remark, recovery, figures(load)) + (week?.let { listOf("") + it.lines + "" } ?: emptyList()) + SIGNATURE).joinToString("\n")
 
     /** A footing or a long run: just "Footing" (or "Sortie longue") as the name, and the training load as the only figure of the description. */
-    fun buildEasy(a: ActivityRow, weekLoad: Double?, readiness: Int?): StravaText? {
+    fun buildEasy(a: ActivityRow, load: Double?, week: WeekReview? = null, recovery: String? = null): StravaText? {
         if ((a.distance ?: 0.0) <= 0 || (a.duration ?: 0.0) <= 0) return null
         val kind = if (a.category == "long") "Sortie longue" else "Footing"
-        val description = (listOfNotNull(weekLoad?.let { "Charge d'entraînement : ${Fmt.num(it)} / 20" }) + SIGNATURE).joinToString("\n\n")
-        return StravaText(kind, description, interval = false)
+        return StravaText(kind, describe(emptyList(), load, null, week, recovery), interval = false)
     }
 }

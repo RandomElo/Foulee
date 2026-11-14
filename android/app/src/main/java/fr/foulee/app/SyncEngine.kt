@@ -17,9 +17,15 @@ class Step(val key: String, val label: String, val planned: Int, val rate: Doubl
         get() = state
         set(v) {
             if (v == "running") startedAt = System.currentTimeMillis()
-            if (v != "running" && state == "running") finishedAt = System.currentTimeMillis()
+            if (v != "running" && state == "running") { finishedAt = System.currentTimeMillis(); live = null }
             state = v
         }
+    /** What a running step is doing right now ("Attente de la réponse du serveur (délai max 30 s)") and since when, shown under its line. */
+    var live by mutableStateOf<String?>(null)
+        private set
+    var liveSince by mutableStateOf(0L)
+        private set
+    fun showLive(text: String?) { live = text; liveSince = System.currentTimeMillis() }
     var startedAt = 0L
         private set
     var finishedAt = 0L
@@ -219,6 +225,7 @@ object SyncEngine {
                 trigger == "auto" && newActivities == 0 -> stravaStep.status = "skipped"
                 else -> {
                     stravaStep.status = "running"
+                    StravaSync.phase = { stravaStep.showLive(it) }
                     try {
                         val result = StravaSync.run(settings, db)
                         stravaStep.count = result.count
@@ -230,6 +237,7 @@ object SyncEngine {
                         stravaStep.error = e.message ?: e.javaClass.simpleName
                         settings.stravaStatus = stravaStep.error
                     }
+                    StravaSync.phase = null
                     settings.stravaStatusAt = System.currentTimeMillis()
                 }
             }
@@ -257,12 +265,15 @@ object SyncEngine {
                 textsStep.status = "skipped"
             } else {
                 textsStep.status = "running"
+                StravaSync.phase = { textsStep.showLive(it) }
                 try {
                     textsStep.note = StravaTexts.push(settings, db)?.substringAfter(" : ") ?: "rien de nouveau à envoyer"
                     textsStep.status = "success"
                 } catch (e: Exception) {
                     textsStep.status = "skipped"
                     textsStep.error = e.message ?: e.javaClass.simpleName
+                } finally {
+                    StravaSync.phase = null
                 }
             }
 

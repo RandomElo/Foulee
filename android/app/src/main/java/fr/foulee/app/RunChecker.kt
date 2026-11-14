@@ -108,10 +108,10 @@ object RunChecker {
                 db.addLog("I", "detection", "course ${it.id} finie à ${Fmt.dateTime(endedAt(it))}, détectée ${(now - endedAt(it)) / 60000} min plus tard (source $source)")
             }
             log("course", fresh.size)
-            val form = Insights.analyze(db).form
+            val analysis = Insights.analyze(db)
             // The run is rarely on Strava yet: the title and description go once it appears there
             StravaFollowUp.start(context, fresh.map { it.id })
-            return fresh.map { Run.from(it, form) }.onEach { Notifier.notify(context, it) }
+            return fresh.map { Run.from(it, analysis.form, analysis.globalLoadOn(it)) }.onEach { Notifier.notify(context, it) }
         } catch (e: AuthException) {
             log("connexion")
             db.addLog("W", "verif", "$source : ${e.message}")
@@ -127,6 +127,7 @@ object RunChecker {
     fun notifyLatest(context: Context): Run? {
         val db = Db(context)
         val latest = db.activities().filter { it.isRun }.maxByOrNull { it.startLocal } ?: return null
-        return Run.from(latest, Insights.analyze(db).form).also { Notifier.notify(context, it) }
+        val analysis = Insights.analyze(db)
+        return Run.from(latest, analysis.form, analysis.globalLoadOn(latest)).also { Notifier.notify(context, it) }
     }
 }

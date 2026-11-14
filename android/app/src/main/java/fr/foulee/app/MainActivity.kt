@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.CheckCircle
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DirectionsRun
@@ -47,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -62,10 +65,26 @@ private val tabs = listOf(
 private const val USER_TAB = 3
 
 class MainActivity : ComponentActivity() {
+    private var appState: AppState? = null
+    private var started = false
+
+    // Back from the background: a sync or a check may have written new data while the screen showed the old one
+    override fun onResume() {
+        super.onResume()
+        if (started) appState?.refresh() else started = true
+    }
+
+    // Switching the launcher entry can make some launchers close the screen it started from: it waits until the app is out of sight
+    override fun onStop() {
+        super.onStop()
+        AppIcon.apply(applicationContext, Settings(applicationContext).style)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val state = AppState(applicationContext)
+        appState = state
         if (state.loggedIn && Settings(applicationContext).autoCheck) Detection.schedule(this)
         setContent {
             FouleeTheme {
@@ -84,7 +103,7 @@ class MainActivity : ComponentActivity() {
 private fun App(state: AppState) {
     val pal = LocalPal.current
     if (!state.loggedIn && !state.onboardingDone) {
-        OnboardingScreen { state.finishOnboarding() }
+        OnboardingScreen(state) { state.finishOnboarding() }
         return
     }
     var tab by rememberSaveable { mutableStateOf(if (state.loggedIn) 0 else USER_TAB) }
@@ -99,23 +118,38 @@ private fun App(state: AppState) {
     }
     BackHandler(open != null || review) { if (open != null) closeDetail() else review = false }
     val snap = state.snapshot
+    // A bad recovery is announced when the app opens, once a day
+    val recovery = remember(snap) { snap?.let { RecoveryCheck.alert(it.analysis, it.activities) } }
+    var recoverySeen by rememberSaveable { mutableStateOf(false) }
+    if (recovery != null && !recoverySeen && state.loggedIn && state.recoveryAlertDue()) RecoveryDialog(recovery) { recoverySeen = true; state.recoveryAlerted() }
+    // The neo looks color the top and bottom bars (white ones break the page); dark keeps them dark
+    val barColor = if (pal.neo && !pal.dark) pal.yellow else pal.card
+    val onBar = if (pal.neo && !pal.dark) pal.ink else pal.text
     Scaffold(
         containerColor = pal.bg,
         topBar = {
-            Row(Modifier.fillMaxWidth().background(pal.card).padding(horizontal = 16.dp, vertical = 12.dp).padding(top = 28.dp), verticalAlignment = Alignment.CenterVertically) {
-                Image(painterResource(R.drawable.logo), null, Modifier.size(24.dp))
-                Text("Foulée", Modifier.padding(start = 8.dp).weight(1f).padding(end = 8.dp), fontWeight = FontWeight.SemiBold, fontSize = 17.sp, color = pal.text)
-                if (state.loggedIn) SyncBadge(state) { tab = USER_TAB; open = null; openFrom = null }
+            Column {
+                Row(Modifier.fillMaxWidth().background(barColor).padding(horizontal = 16.dp, vertical = 12.dp).padding(top = 28.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Image(painterResource(if (pal.neo) R.drawable.logo_neo else R.drawable.logo), null, Modifier.size(24.dp))
+                    Text(if (pal.neo) "FOULÉE" else "Foulée", Modifier.padding(start = 8.dp).weight(1f).padding(end = 8.dp), fontWeight = if (pal.neo) FontWeight.Black else FontWeight.SemiBold, fontSize = 17.sp, color = onBar)
+                    // A touch on the pill starts a sync; while one is running it opens the sync page to follow it
+                    if (state.loggedIn) SyncBadge(state) { if (SyncEngine.current == null) state.sync("today") else { tab = USER_TAB; open = null; openFrom = null } }
+                }
+                if (pal.neo) Box(Modifier.fillMaxWidth().height(pal.outline).background(pal.border))
             }
         },
         bottomBar = {
-            NavigationBar(containerColor = pal.card) {
+            Column {
+            if (pal.neo) Box(Modifier.fillMaxWidth().height(pal.outline).background(pal.border))
+            NavigationBar(containerColor = barColor) {
                 tabs.forEachIndexed { i, t ->
                     NavigationBarItem(
                         selected = tab == i, onClick = { tab = i; open = null; openFrom = null; review = false }, icon = { Icon(t.icon, null) }, label = { Text(if (i == USER_TAB) state.firstName ?: t.label else t.label, fontSize = 11.sp, maxLines = 1) },
-                        colors = NavigationBarItemDefaults.colors(selectedIconColor = pal.accent, selectedTextColor = pal.accent, indicatorColor = pal.accent.copy(alpha = 0.1f), unselectedIconColor = pal.muted, unselectedTextColor = pal.muted),
+                        colors = if (pal.neo) NavigationBarItemDefaults.colors(selectedIconColor = pal.ink, selectedTextColor = onBar, indicatorColor = if (pal.dark) pal.yellow else Color.White, unselectedIconColor = if (pal.dark) pal.muted else pal.ink.copy(alpha = 0.7f), unselectedTextColor = if (pal.dark) pal.muted else pal.ink.copy(alpha = 0.7f))
+                        else NavigationBarItemDefaults.colors(selectedIconColor = pal.accent, selectedTextColor = pal.accent, indicatorColor = pal.accent.copy(alpha = 0.1f), unselectedIconColor = pal.muted, unselectedTextColor = pal.muted),
                     )
                 }
+            }
             }
         },
     ) { padding ->
@@ -133,16 +167,14 @@ private fun App(state: AppState) {
     }
 }
 
-/** Health and training load share one tab: a switch on top picks which one is shown. */
+/** Health and the global load share one page: health first, the load right under it. */
 @Composable
 private fun FormeScreen(snap: Snapshot) {
-    var showLoad by rememberSaveable { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Chip("Santé", !showLoad) { showLoad = false }
-            Chip("Charge", showLoad) { showLoad = true }
+    Column(Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = 16.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(28.dp)) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalEmbedded provides true) {
+            HealthScreen(snap)
+            LoadScreen(snap)
         }
-        Box(Modifier.weight(1f)) { if (showLoad) LoadScreen(snap) else HealthScreen(snap) }
     }
 }
 
@@ -159,11 +191,11 @@ private fun SyncBadge(state: AppState, onClick: () -> Unit) {
         else -> Settings(androidx.compose.ui.platform.LocalContext.current).lastSuccessAt.let { at -> (if (at <= 0) "Pas encore synchronisé" else "Synchronisé ${Fmt.relative(at)}") to pal.good }
     }
     Row(
-        Modifier.clip(RoundedCornerShape(50)).border(1.dp, pal.border, RoundedCornerShape(50)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 6.dp),
+        Modifier.clip(RoundedCornerShape(if (pal.neo) pal.radius else 50.dp)).background(if (pal.neo) (if (color == pal.bad) pal.pink else if (color == pal.warn) pal.orange else if (color == pal.accent) pal.sky else pal.mint) else androidx.compose.ui.graphics.Color.Transparent).border(if (pal.neo) pal.outline else 1.dp, pal.border, RoundedCornerShape(if (pal.neo) pal.radius else 50.dp)).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (current != null) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = color)
-        else Icon(if (last?.status == "error" || last?.status == "partial") Icons.Filled.Warning else Icons.Filled.CheckCircle, null, Modifier.size(14.dp), tint = color)
-        Text(label, Modifier.padding(start = 6.dp), color = color, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+        if (current != null) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = if (pal.neo) pal.ink else color)
+        else Icon(if (last?.status == "error" || last?.status == "partial") Icons.Filled.Warning else Icons.Filled.CheckCircle, null, Modifier.size(14.dp), tint = if (pal.neo) pal.ink else color)
+        Text(label, Modifier.padding(start = 6.dp), color = if (pal.neo) pal.ink else color, fontSize = 13.sp, fontWeight = if (pal.neo) FontWeight.Bold else FontWeight.Medium, maxLines = 1)
     }
 }

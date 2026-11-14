@@ -188,10 +188,12 @@ object Sync {
         return total
     }
 
-    /** The days to fetch: the [recent] last ones (refreshed, the day is not over) plus up to [backfillMax] missing days of the window. */
+    /** The days to fetch: the [recent] last ones (refreshed, the day is not over) plus up to [backfillMax] missing days of the window (and days without their night). */
     fun wantedDays(db: Db, recent: Int, backfillMax: Int): List<String> {
         val today = LocalDate.now()
-        val have = db.dailyDates()
+        // A day stored without its night (Garmin had not processed the sleep yet) is fetched again: the last 60 days on a normal sync, the whole window on a full one
+        val retry = db.daysWithoutNight(today.minusDays(if (backfillMax >= 100) WINDOW_DAYS else 60).toString())
+        val have = db.dailyDates() - retry
         return ((0 until recent).map { today.minusDays(it.toLong()).toString() } +
             (0 until WINDOW_DAYS).map { today.minusDays(it).toString() }.filter { it !in have }.take(backfillMax)).distinct()
     }

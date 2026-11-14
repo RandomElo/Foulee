@@ -53,6 +53,18 @@ object StravaSync {
     /** Set by the engine to write in the journal. */
     var settingsLog: ((String) -> Unit)? = null
 
+    /** Set by the engine: what the call in progress is doing, shown under the step of the sync (which call, which address, how long it may wait). */
+    var phase: ((String?) -> Unit)? = null
+
+    private fun callName(path: String) = when {
+        path.startsWith("/api/etat") -> "lecture de l'état du serveur"
+        path.startsWith("/api/activites") -> "lecture des sorties"
+        path.startsWith("/api/seances") -> "envoi des titres et descriptions"
+        path.startsWith("/api/labels") -> "écriture des labels"
+        path.startsWith("/api/synchro") -> "demande de synchro à Strava"
+        else -> path
+    }
+
     private fun addressPrefs() = NetworkDiagnostic.appContext?.getSharedPreferences("foulee_net", android.content.Context.MODE_PRIVATE)
     private fun rememberedAddress(host: String) = addressPrefs()?.getString("ip_$host", null)
 
@@ -71,6 +83,9 @@ object StravaSync {
     private fun request(method: String, base: String, key: String, path: String, body: String?, readTimeoutMs: Int = 30_000): JSONObject {
         val headers = mutableMapOf("Authorization" to "Bearer $key", "Accept" to "application/json")
         if (body != null) headers["Content-Type"] = "application/json"
+        val host = runCatching { java.net.URL(base).host }.getOrDefault(base)
+        val limit = "délai max ${readTimeoutMs / 1000} s"
+        phase?.invoke("${callName(path).replaceFirstChar { it.uppercase() }} : attente de $host ($limit)")
         val response = try {
             try {
                 Http.request(method, base + path, headers, body, readTimeoutMs).also { rememberAddress(base) }
@@ -80,14 +95,15 @@ object StravaSync {
                 val url = java.net.URL(base)
                 if (url.protocol != "http") throw e
                 settingsLog?.invoke("le système ne trouve pas ${url.host} : résolution directe auprès des DNS du réseau")
+                phase?.invoke("Le système ne trouve pas $host : recherche auprès des DNS du réseau")
                 val direct = NetworkDiagnostic.resolveDirect(url.host)
                 val ip = direct ?: rememberedAddress(url.host)
                 if (ip == null) throw e
                 if (direct == null) settingsLog?.invoke("aucun DNS ne connaît ${url.host} : j'utilise la dernière adresse connue, $ip")
+                phase?.invoke("${callName(path).replaceFirstChar { it.uppercase() }} : attente de $ip ($limit)")
                 Http.rawRequest(ip, if (url.port != -1) url.port else 80, url.host, method, path, headers, body, readTimeoutMs)
             }
         } catch (e: IOException) {
-            val host = runCatching { java.net.URL(base).host }.getOrDefault(base)
             throw StravaError(
                 when (e) {
                     is java.net.UnknownHostException -> "Le téléphone ne trouve pas « $host » : son DNS ne le connaît pas. Vérifie le DNS du Wi-Fi (un seul serveur, celui d'AdGuard) et le DNS privé d'Android."
@@ -167,7 +183,7 @@ object StravaSync {
 
     /** Strava's labels in the app's words. */
     fun labelFr(label: String) = when (label) {
-        "Race" -> "Course"
+        "Race" -> "Compétition"
         "Workout" -> "Entraînement"
         "LongRun" -> "Sortie longue"
         else -> label

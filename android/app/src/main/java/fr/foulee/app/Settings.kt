@@ -4,11 +4,29 @@ import android.content.Context
 
 /** Garmin tokens (encrypted with the Android Keystore; the password is never stored) and the runs already notified. */
 class Settings(context: Context) {
+    private val prefs = context.getSharedPreferences("foulee", Context.MODE_PRIVATE)
+
     init {
         NetworkDiagnostic.appContext = context.applicationContext
+        // Before the references were asked, every install used these figures (the author's own): whoever is already signed in keeps them
+        if (!prefs.contains("ref_vma") && loggedIn) {
+            prefs.edit().putFloat("ref_vma", 19.2f).putFloat("ref_5k", 16 * 60 + 48f).putFloat("ref_10k", 37 * 60 + 2f).putFloat("ref_half", 83 * 60 + 48f).apply()
+        }
+        UserRefs.load(prefs)
+        AppStyle.family = style
+        AppStyle.mode = prefs.getString("mode", "auto") ?: "auto"
     }
 
-    private val prefs = context.getSharedPreferences("foulee", Context.MODE_PRIVATE)
+    /** "revue" (Foulée, auto/light/dark) or "neo" (always light); a former "soft" choice becomes "neo". */
+    var style: String get() = prefs.getString("style", "revue").let { if (it == "soft") "neo" else it ?: "revue" }; set(v) { prefs.edit().putString("style", v).apply(); AppStyle.family = v }
+    var mode: String get() = prefs.getString("mode", "auto") ?: "auto"; set(v) { prefs.edit().putString("mode", v).apply(); AppStyle.mode = v }
+
+    /** His references (VMA, records, heart rates): kept here, used for the zones, the race paces of the "Spé" texts and the heart-rate load. */
+    fun saveRefs(vma: Double, rec5: Double, rec10: Double, recHalf: Double, hrMax: Int, hrRest: Int) {
+        prefs.edit().putFloat("ref_vma", vma.toFloat()).putFloat("ref_5k", rec5.toFloat()).putFloat("ref_10k", rec10.toFloat()).putFloat("ref_half", recHalf.toFloat())
+            .putInt("ref_hrmax", hrMax).putInt("ref_hrrest", hrRest).apply()
+        UserRefs.load(prefs)
+    }
 
     // Apart from the main file: signing out wipes that one, and the introduction must not come back for the same person
     private val ui = context.getSharedPreferences("foulee_ui", Context.MODE_PRIVATE)
@@ -60,6 +78,10 @@ class Settings(context: Context) {
     var stravaWaiting: Set<String> get() = prefs.getStringSet("stravaWaiting", emptySet()) ?: emptySet(); set(v) = prefs.edit().putStringSet("stravaWaiting", v).apply()
     /** Titles and descriptions of footings and long runs go by themselves when this is on (the server keeps the Workout label off them, since its version 0.3.0). */
     var easyTexts: Boolean get() = prefs.getBoolean("easyTexts", true); set(v) = prefs.edit().putBoolean("easyTexts", v).apply()
+    /** Hidden switch (set with adb): writes the scores and the global loads to the journal, to tune the formulas on real data. */
+    /** The day the "you recover badly" pop-up was last shown: once a day at most */
+    var recoveryAlertDay: String? get() = prefs.getString("recoveryAlertDay", null); set(v) = prefs.edit().putString("recoveryAlertDay", v).apply()
+    var diagnostic: Boolean get() = prefs.getBoolean("diagnostic", false); set(v) = prefs.edit().putBoolean("diagnostic", v).apply()
     var textsSince: String? get() = string("textsSince"); set(v) = prefs.edit().putString("textsSince", v).apply()
     var stravaCursor: String? get() = string("stravaCursor"); set(v) = prefs.edit().putString("stravaCursor", v).apply()
 

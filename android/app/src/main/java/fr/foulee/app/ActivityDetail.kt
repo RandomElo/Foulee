@@ -1,6 +1,7 @@
 package fr.foulee.app
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
@@ -18,6 +19,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -55,9 +60,18 @@ import kotlin.math.roundToInt
 private class Cell(val key: String, val label: String, val value: String, val clickable: Boolean = true)
 
 /** Percent (for the gauge, null when there is nothing to compare) and a short sentence. */
-private class Insight(val percent: Int?, val gaugeLabel: String, val text: String)
+/** [detail]: why, for this session, in one line. [help]: how the part is calculated, shown behind its "i". */
+private class InsightPart(val label: String, val value: String, val fraction: Float, val tone: Int, val detail: String, val help: HelpSpec, val weight: Double? = null, val weightOf: String = "")
 
-private fun insight(key: String, a: ActivityRow, snap: Snapshot): Insight? {
+/** A scale drawn in a help window: where [marker] (0 to 1) sits between [ticks] (position, label), with its own value in [markerText]. */
+private class ScaleSpec(val label: String, val marker: Float, val markerText: String, val ticks: List<Pair<Float, String>>)
+
+/** What the "i" of a part shows: one sentence, the scales with the place of this session on them, and a few short rules. */
+private class HelpSpec(val summary: String, val scales: List<ScaleSpec>, val bullets: List<String>)
+
+private class Insight(val percent: Int?, val gaugeLabel: String, val text: String, val parts: List<InsightPart> = emptyList(), val zoneValue: Double? = null)
+
+private fun insight(key: String, a: ActivityRow, snap: Snapshot, session: SessionAnalysis? = null): Insight? {
     val analysis = snap.analysis
     when (key) {
         "pace" -> {
@@ -97,8 +111,29 @@ private fun insight(key: String, a: ActivityRow, snap: Snapshot): Insight? {
             return Insight((effort * 10).roundToInt(), "d'effort", "$label." + (points?.let { " Elle pèse ${Fmt.num(it)} point${if (it >= 2) "s" else ""} sur les 20 de ta charge hebdomadaire." } ?: ""))
         }
         "week" -> {
-            val week = analysis.weekLoadOn(a) ?: return null
-            return Insight((week / 20 * 100).roundToInt(), "de charge", "Charge des 7 jours qui finissent avec cette séance : ${Fmt.num(week)} sur 20 (20 = tes semaines les plus chargées).")
+            val p = snap.analysis.globalAfter(a) ?: return null
+            fun times(v: Double) = "× ${Fmt.num(v, 2)}"
+            val parts = buildList {
+                add(InsightPart("Charge d'entraînement", times(p.trainingRatio), (p.trainingRatio / 1.8).toFloat().coerceIn(0f, 1f), 0, "tes 7 derniers jours contre tes 6 dernières semaines",
+                    HelpSpec("La charge de ton cœur (fréquence cardiaque, tous sports) de ces derniers jours, comparée à ce que tu encaisses d'habitude.",
+                        listOf(ScaleSpec("Ta charge, par rapport à ton habitude", (p.trainingRatio / 1.8).toFloat().coerceIn(0f, 1f), times(p.trainingRatio), listOf(0f to "0", (1 / 1.8).toFloat() to "× 1 = ton habitude", 1f to "× 1,8"))),
+                        listOf("Les jours récents comptent plus que les anciens", "Un jour de repos baisse la valeur d'environ 11 %", "Comptée avec ta fréquence cardiaque, pas avec la charge de Garmin"))))
+                p.volumeRatio?.let { add(InsightPart("Volume couru", times(it), (it / 1.8).toFloat().coerceIn(0f, 1f), 1, "${Math.round(p.weekKm)} km en ${p.weekSessions} séance${if (p.weekSessions > 1) "s" else ""} sur 7 jours",
+                    HelpSpec("Les kilomètres de ces derniers jours comparés à tes kilomètres habituels. Ils voient le volume facile, que la fréquence cardiaque compte à peine.",
+                        listOf(ScaleSpec("Tes kilomètres, par rapport à ton habitude", (it / 1.8).toFloat().coerceIn(0f, 1f), times(it), listOf(0f to "0", (1 / 1.8).toFloat() to "× 1 = ton habitude", 1f to "× 1,8"))),
+                        listOf("Seule la course à pied compte", "Il pèse pour 40 % du rapport, le cœur pour 60 %")))) }
+                val recoveryWord = if (!p.hasWatch) "montre non synchronisée" else if (p.deficit < 0.15) "comme d'habitude" else if (p.deficit < 0.5) "en baisse" else "en déficit"
+                add(InsightPart("Récupération", recoveryWord, p.deficit.toFloat(), 2, if (p.unfavorable.isEmpty()) "VFC, FC de repos et sommeil sur 7 nuits" else p.unfavorable.joinToString(", ") { it.first } + " en dessous de ton habitude",
+                    HelpSpec("Tes 7 dernières nuits (VFC, FC de repos, sommeil) comparées à tes deux mois d'avant.",
+                        listOf(ScaleSpec("Ton déficit de récupération", p.deficit.toFloat(), recoveryWord, listOf(0f to "comme d'habitude", 1f to "déficit net"))),
+                        listOf("Elle n'alourdit la charge que si tu charges plus que d'habitude et que ta récupération se dégrade", "Une bonne récupération ne fait jamais descendre la charge sous ce que dit l'entraînement seul", "Sans synchro de la montre, elle compte pour rien"))))
+            }
+            val why = when {
+                p.ratio >= 1.05 -> "Tu charges ${Math.round((p.ratio - 1) * 100)} % de plus que d'habitude."
+                p.ratio <= 0.95 -> "Tu charges ${Math.round((1 - p.ratio) * 100)} % de moins que d'habitude."
+                else -> "Tu charges comme d'habitude."
+            } + if (p.deficit >= 0.15 && p.ratio > 1.0) " Ta récupération se dégrade, ce qui alourdit le chiffre." else ""
+            return Insight((p.total / 20 * 100).roundToInt(), "de charge globale", why, parts, p.total)
         }
     }
     return null
@@ -114,9 +149,11 @@ private fun smooth(values: List<Double?>, window: Int): List<Double?> = values.i
 }
 
 @Composable
-private fun Curves(detail: ActivityDetail, a: ActivityRow) {
+private fun Curves(detail: ActivityDetail, a: ActivityRow, showAltitude: Boolean) {
     val pal = LocalPal.current
     val samples = detail.samples
+    // One touched point shared by the three curves: the pace, the heart rate and the altitude of the same moment
+    var sel by remember(detail) { mutableStateOf<Int?>(null) }
     if (detail.track.size >= 2) Card(title = "Parcours") { RouteMap(detail.track) }
     if (samples.size < 10) return
     val last = samples.lastOrNull { it.d != null }?.d ?: 0.0
@@ -125,13 +162,16 @@ private fun Curves(detail: ActivityDetail, a: ActivityRow) {
     if (a.isRun) {
         // Standing still or walking (recoveries) counts as the slowest pace instead of leaving a hole in the curve
         val pace = smooth(samples.map { it.speed?.coerceAtLeast(0.5) }, 5).map { s -> s?.let { 1000 / it }?.coerceAtMost(600.0) }
+        fun pointText(i: Int): String = listOfNotNull(
+            samples[i].d?.let { "${Fmt.num(it / 1000, 2)} km" }, pace.getOrNull(i)?.let { "${Fmt.clock(it)} /km" }, samples[i].hr?.takeIf { it > 30 }?.let { "${it.roundToInt()} bpm" },
+        ).joinToString(" · ")
         val valid = pace.filterNotNull().filter { it >= 120 }.sorted()
         if (valid.size >= 10) {
             val fast = percentile(valid, 0.03)
             val slow = percentile(valid, 0.97)
             Card(title = "Allure") {
                 // The axis is inverted: faster is higher
-                LineChart(listOf(Series(pace.map { it?.let { p -> -p.coerceIn(fast, slow) } }, pal.accent, fill = true)), -slow, -fast, labels, topLabel = "${Fmt.clock(fast)} à ${Fmt.clock(slow)} /km")
+                LineChart(listOf(Series(pace.map { it?.let { p -> -p.coerceIn(fast, slow) } }, pal.accent, fill = true)), -slow, -fast, labels, topLabel = if (sel == null) "${Fmt.clock(fast)} à ${Fmt.clock(slow)} /km" else null, selected = sel, readout = sel?.let { pointText(it) }, onSelect = { sel = it })
             }
         }
     }
@@ -141,14 +181,14 @@ private fun Curves(detail: ActivityDetail, a: ActivityRow) {
         val lo = percentile(hrValid, 0.02)
         val hi = percentile(hrValid, 0.99)
         Card(title = "Fréquence cardiaque") {
-            LineChart(listOf(Series(hr, pal.bad, fill = true)), lo, hi, labels, topLabel = "${lo.roundToInt()} à ${hi.roundToInt()} bpm")
+            LineChart(listOf(Series(hr, pal.bad, fill = true)), lo, hi, labels, topLabel = if (sel == null) "${lo.roundToInt()} à ${hi.roundToInt()} bpm" else null, selected = sel, readout = sel?.let { i -> listOfNotNull(samples[i].d?.let { "${Fmt.num(it / 1000, 2)} km" }, hr.getOrNull(i)?.let { "${it.roundToInt()} bpm" }).joinToString(" · ") }, onSelect = { sel = it })
         }
     }
     val ele = smooth(samples.map { it.ele }, 5)
     val eleValid = ele.filterNotNull()
-    if (eleValid.size >= 10 && eleValid.max() - eleValid.min() >= 5) {
+    if (showAltitude && eleValid.size >= 10 && eleValid.max() - eleValid.min() >= 5) {
         Card(title = "Altitude") {
-            LineChart(listOf(Series(ele, pal.good, fill = true)), eleValid.min(), eleValid.max(), labels, topLabel = "${eleValid.min().roundToInt()} à ${eleValid.max().roundToInt()} m")
+            LineChart(listOf(Series(ele, pal.good, fill = true)), eleValid.min(), eleValid.max(), labels, topLabel = if (sel == null) "${eleValid.min().roundToInt()} à ${eleValid.max().roundToInt()} m" else null, selected = sel, readout = sel?.let { i -> listOfNotNull(samples[i].d?.let { "${Fmt.num(it / 1000, 2)} km" }, ele.getOrNull(i)?.let { "${it.roundToInt()} m" }).joinToString(" · ") }, onSelect = { sel = it })
         }
     }
 }
@@ -348,16 +388,16 @@ private fun IntervalCard(analysis: IntervalAnalysis, notes: List<String> = empty
 /** The effect levels Garmin gives a session, from the gentlest to the hardest. */
 private val effectLadder = listOf("RECOVERY", "BASE", "TEMPO", "LACTATE_THRESHOLD", "VO2MAX", "ANAEROBIC_CAPACITY", "SPRINT")
 
-private fun effectLevel(key: String) = when (key) {
+private fun effectLevel(key: String) = when (key.removePrefix("AEROBIC_")) {
     "SPEED" -> effectLadder.indexOf("ANAEROBIC_CAPACITY")
-    else -> effectLadder.indexOf(key)
+    else -> effectLadder.indexOf(key.removePrefix("AEROBIC_"))
 }
 
 /** The ladder: one segment per level, the session's one lit. */
 @Composable
 private fun EffectLadder(level: Int) {
     val pal = LocalPal.current
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.Bottom) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
         effectLadder.indices.forEach { i ->
             val lit = i == level
             Box(
@@ -423,7 +463,7 @@ private fun TrainingEffectCard(a: ActivityRow) {
 }
 
 /** What the effect trains, in a few words each. */
-private fun teWorks(key: String): List<String> = when (key) {
+private fun teWorks(key: String): List<String> = when (key.removePrefix("AEROBIC_")) {
     "RECOVERY" -> listOf("Circulation", "Récupération des muscles")
     "BASE" -> listOf("Endurance de fond", "Graisses comme carburant", "Capillaires")
     "TEMPO" -> listOf("Allure soutenue", "Efficacité du cœur", "Endurance musculaire")
@@ -435,8 +475,8 @@ private fun teWorks(key: String): List<String> = when (key) {
     else -> emptyList()
 }
 
-private fun teExplanation(key: String) = when (key) {
-    "NO_BENEFIT" -> "Trop court ou trop léger pour avoir un effet."
+private fun teExplanation(key: String) = when (key.removePrefix("AEROBIC_")) {
+    "NO_BENEFIT", "UNKNOWN" -> "Trop court ou trop léger pour avoir un effet."
     "RECOVERY" -> "Séance très facile : elle aide à récupérer."
     "BASE" -> "Endurance facile : elle construit la base."
     "TEMPO" -> "Allure soutenue mais tenable longtemps."
@@ -448,9 +488,9 @@ private fun teExplanation(key: String) = when (key) {
     else -> "Effet principal de la séance selon Garmin."
 }
 
-/** Garmin's label, as the web app showed it. */
-private fun teLabel(key: String) = when (key) {
-    "NO_BENEFIT" -> "Aucun bénéfice"
+/** Garmin's label ("AEROBIC_BASE" and "AEROBIC_TEMPO" come with a prefix), as the web app showed it. */
+private fun teLabel(key: String) = when (key.removePrefix("AEROBIC_")) {
+    "NO_BENEFIT", "UNKNOWN" -> "Aucun bénéfice"
     "RECOVERY" -> "Récupération"
     "BASE" -> "Endurance de base"
     "TEMPO" -> "Tempo"
@@ -615,30 +655,50 @@ fun ActivityDetailScreen(state: AppState, snap: Snapshot, opened: ActivityRow, o
             if (laps == null || a.intervalTitle == null) null else snap.history.analyze(a.id, detail?.samples ?: emptyList(), laps)
         }
     }
+    val remark = remember(sessionAnalysis) { SessionRemark.of(sessionAnalysis) }
+    // On a Sunday run: the review of the week, also written in the Strava description
+    val weekReview = remember(a.id, snap) { LocalDate.parse(a.startLocal.take(10)).takeIf { a.isRun && WeekReviews.isReviewDay(it) }?.let { WeekReviews.of(it, snap.activities, analysis, snap.history) } }
     val weekPoint = analysis.load.firstOrNull { it.date == a.startLocal.take(10) }
     val cells = listOfNotNull(
         Cell("distance", "Distance", Fmt.km(a.distance), false),
         Cell("duration", "Durée", Fmt.clock(a.duration), false),
-        a.vo2Max?.let { Cell("vo2", "VO2 max", Fmt.num(it), false) },
         Cell("pace", if (a.isRun) "Allure" else "Vitesse", if (a.isRun) Fmt.pace(a.averageSpeed) else Fmt.speed(a.averageSpeed)).takeIf { a.isRun },
         Cell("speed", "Vitesse", Fmt.speed(a.averageSpeed), false).takeIf { !a.isRun },
         a.averageHr?.let { Cell("hr", "FC moyenne", "${it.roundToInt()} bpm") },
-        analysis.effortOf(a)?.let { Cell("effort", "Effort", "${Fmt.num(it)} / 10") },
-        analysis.weekLoadOn(a)?.let { Cell("week", "Charge 7 jours", "${Fmt.num(it)} / 20") },
+        analysis.globalLoadOn(a)?.let { Cell("week", "Charge globale", "${Fmt.num(it)} / 20") },
         // Elevation only matters when there is some
         a.elevation?.takeIf { it >= 100 }?.let { Cell("elevation", "Dénivelé", "${it.roundToInt()} m", false) },
     )
 
+    // The altitude curve only when this outing climbs much more than usual, or when the whole week does
+    val showAltitude = remember(a.id, snap) { hilly(a, snap.activities) }
+    var infoOpen by remember(a.id) { mutableStateOf(false) }
+    val accordion = remember(a.id) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    if (infoOpen) InfoDialog(state, a, detail, intervals, textOf = { buildText(a, intervals, analysis, remark, weekReview) }) { infoOpen = false }
+
+    androidx.compose.runtime.CompositionLocalProvider(LocalAccordion provides accordion) {
     Page {
-        Row(Modifier.clickable(onClick = onBack), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(18.dp), tint = pal.accent)
-            Text("Activités", Modifier.padding(start = 6.dp), color = pal.accent, fontWeight = FontWeight.Medium)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.clip(RoundedCornerShape(10.dp)).then(if (pal.neo) Modifier.background(pal.yellow).border(pal.outline, pal.border, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 6.dp) else Modifier).clickable(onClick = onBack),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, Modifier.size(18.dp), tint = if (pal.neo) pal.ink else pal.accent)
+                Text(if (pal.neo) "ACTIVITÉS" else "Activités", Modifier.padding(start = 6.dp), color = if (pal.neo) pal.ink else pal.accent, fontWeight = if (pal.neo) FontWeight.Black else FontWeight.Medium)
+            }
+            val iShape = if (pal.neo) RoundedCornerShape(10.dp) else androidx.compose.foundation.shape.CircleShape
+            Box(
+                Modifier.size(if (pal.neo) 38.dp else 34.dp).clip(iShape).then(if (pal.neo) Modifier.background(pal.sky).border(pal.outline, pal.border, iShape) else Modifier.background(pal.accent.copy(alpha = 0.14f))).clickable { infoOpen = true },
+                contentAlignment = Alignment.Center,
+            ) { Text("i", color = if (pal.neo) pal.ink else pal.accent, fontSize = 16.sp, fontWeight = if (pal.neo) FontWeight.Black else FontWeight.Bold, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic) }
         }
         Column {
-            Text(Fmt.typeLabel(a.type), color = pal.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            Text(a.title, fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = pal.text, lineHeight = 30.sp)
+            if (pal.neo) Text(Categories.label(a.category).uppercase(), Modifier.clip(RoundedCornerShape(50)).background(categoryColor(pal, a.category)).border(2.dp, pal.border, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 3.dp), color = pal.ink, fontSize = 12.sp, fontWeight = FontWeight.Black)
+            else Text(Fmt.typeLabel(a.type), color = pal.accent, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(a.title, Modifier.padding(top = if (pal.neo) 6.dp else 0.dp), fontSize = if (pal.neo) 26.sp else 24.sp, fontWeight = if (pal.neo) FontWeight.Black else FontWeight.SemiBold, color = pal.text, lineHeight = 30.sp)
             Muted("${Fmt.longDate(LocalDate.parse(a.startLocal.take(10))).lowercase()} à ${a.startLocal.drop(11).take(5)}", Modifier.padding(top = 4.dp), size = 14)
             Box(Modifier.padding(top = 10.dp)) { CategoryPicker(state, a) }
+            remark?.let { SessionRemarkLine(it, Modifier.padding(top = 12.dp)) }
         }
 
         Card {
@@ -662,51 +722,49 @@ fun ActivityDetailScreen(state: AppState, snap: Snapshot, opened: ActivityRow, o
                     if (pair.size == 1) Box(Modifier.weight(1f)) {}
                 }
             }
-            weekPoint?.let { Muted("Charge 7 jours : ${Math.round(it.weekKm)} km et ${it.weekSessions} séance${if (it.weekSessions > 1) "s" else ""} sur la semaine qui finit ce jour-là.", Modifier.padding(top = 8.dp, start = 10.dp)) }
+            weekPoint?.let { Muted("Semaine qui finit ce jour-là : ${Math.round(it.weekKm)} km et ${it.weekSessions} séance${if (it.weekSessions > 1) "s" else ""}.", Modifier.padding(top = 8.dp, start = 10.dp)) }
         }
 
         metric?.let { key ->
-            insight(key, a, snap)?.let { i ->
+            insight(key, a, snap, sessionAnalysis)?.let { i ->
                 Card(highlight = true) {
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                         if (i.percent != null) Gauge(i.percent, i.gaugeLabel, 150.dp)
-                        Text(i.text, Modifier.padding(top = if (i.percent != null) 4.dp else 0.dp), color = pal.text, textAlign = TextAlign.Center, lineHeight = 21.sp, fontSize = 14.sp)
+                        Text(i.text, Modifier.padding(top = if (i.percent != null) 8.dp else 0.dp), color = pal.text, textAlign = TextAlign.Start, lineHeight = 21.sp, fontSize = 14.sp)
+                        i.zoneValue?.let { LoadZoneGauge(it, Modifier.padding(top = 16.dp)) }
+                        if (i.parts.isNotEmpty()) InsightParts(i.parts)
                     }
                 }
             }
         }
 
-        // What the app would write on Strava for this session, to read and copy by hand
-        val textCard = if (a.intervalTitle != null) intervals?.let { iv ->
-            remember(iv, a.recoveryModes, a.speciality, analysis) { StravaTextBuilder.build(iv, analysis.weekLoadOn(a), StravaTexts.readinessOf(a, analysis), a.speciality) }
-        } else if (a.isRun && a.category in setOf("easy", "long")) {
-            remember(a.id, a.category, analysis) { StravaTextBuilder.buildEasy(a, analysis.weekLoadOn(a), StravaTexts.readinessOf(a, analysis)) }
-        } else null
-        textCard?.let { text ->
-            Card(title = "Texte pour Strava") {
-                androidx.compose.foundation.text.selection.SelectionContainer {
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(pal.track).padding(12.dp)) {
-                        Text(text.name, color = pal.text, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold)
-                        Text(text.description, Modifier.padding(top = 8.dp), color = pal.muted, fontSize = 12.sp, lineHeight = 17.sp)
-                    }
-                }
-                TextActions(state, a, if (text.interval) intervals else null, text)
-            }
-        }
         // Nothing else shows for a moment while the curves and the analysis load from the base
         if (!checked || (a.intervalTitle != null && sessionAnalysis == null)) Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             Muted("Chargement…", Modifier.padding(start = 10.dp), size = 14)
         }
         sessionAnalysis?.let { SessionAnalysisCard(it) }
+        weekReview?.let { WeekReviewCard(it) }
         intervals?.let { iv -> IntervalCard(iv, remember(detail) { detail?.let { Intervals.notes(it.laps, it.samples) } ?: emptyList() }) }
-        detail?.let { Curves(it, a) }
+        detail?.let { Curves(it, a, showAltitude) }
         if (a.teLabel != null || a.aerobicTe != null) TrainingEffectCard(a)
         // Kilometer splits mean little on an interval session: the reps table replaces them
         detail?.let { d ->
             val splits = remember(d) { Splits.compute(d.samples) }
             if (splits.isNotEmpty() && intervals == null) SplitsCard(splits, a.isRun)
             val lapRows = intervals?.laps ?: d.laps.map { LapInfo(it, LapRole.OTHER) }
+            // What the app would write on Strava for this session, folded, just before the watch laps
+            buildText(a, intervals, analysis, remark, weekReview)?.let { text ->
+                FoldCard(title = "Texte pour Strava") {
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(pal.track).padding(12.dp)) {
+                            Text(text.name, color = pal.text, fontSize = 14.sp, lineHeight = 19.sp, fontWeight = FontWeight.SemiBold)
+                            Text(text.description, Modifier.padding(top = 8.dp), color = pal.muted, fontSize = 12.sp, lineHeight = 17.sp)
+                        }
+                    }
+                    TextActions(state, a, if (text.interval) intervals else null, text)
+                }
+            }
             if (lapRows.size > 1) LapsCard(lapRows, intervals, a.isRun)
         }
 
@@ -734,6 +792,242 @@ fun ActivityDetailScreen(state: AppState, snap: Snapshot, opened: ActivityRow, o
                     Text(if (loading) "Chargement…" else "Charger la courbe, le tracé et les tours", Modifier.padding(start = if (loading) 8.dp else 0.dp))
                 }
                 error?.let { Text(it, Modifier.padding(top = 8.dp), color = pal.bad, fontSize = 14.sp) }
+            }
+        }
+    }
+    }
+}
+
+
+/** The title and description the app would put on Strava for this session, or null when it has none. */
+private fun buildText(a: ActivityRow, intervals: IntervalAnalysis?, analysis: Analysis, remark: String?, week: WeekReview?): StravaText? = when {
+    a.intervalTitle != null -> intervals?.let { StravaTextBuilder.build(it, analysis.globalLoadOn(a), remark, a.speciality, week, RecoveryCheck.line(StravaTexts.readinessOf(a, analysis))) }
+    a.isRun && a.category in setOf("easy", "long") -> StravaTextBuilder.buildEasy(a, analysis.globalLoadOn(a), week, RecoveryCheck.line(StravaTexts.readinessOf(a, analysis)))
+    else -> null
+}
+
+/** True when this outing climbs much more than the usual ones, or when the 7 days ending with it climb much more than the usual week. */
+private fun hilly(a: ActivityRow, all: List<ActivityRow>): Boolean {
+    val runs = all.filter { it.isRun && it.id > 0 }
+    val usual = runs.mapNotNull { it.elevation }.sorted().let { if (it.isEmpty()) 0.0 else it[it.size / 2] }
+    val own = a.elevation ?: 0.0
+    if (own >= 60 && own >= 2.5 * usual) return true
+    val day = LocalDate.parse(a.startLocal.take(10))
+    fun weekEnding(d: LocalDate) = runs.filter { val x = LocalDate.parse(it.startLocal.take(10)); !x.isAfter(d) && x.isAfter(d.minusDays(7)) }.sumOf { it.elevation ?: 0.0 }
+    val before = (1..8).map { weekEnding(day.minusDays(7L * it)) }
+    val usualWeek = before.average()
+    val week = weekEnding(day)
+    return week >= 300 && week >= 1.5 * usualWeek
+}
+
+private class InfoLine(val text: String, val tone: String = "info")
+
+private fun toneColor(pal: Pal, tone: String) = when (tone) {
+    "ok" -> pal.good
+    "warn" -> pal.warn
+    "bad" -> pal.bad
+    else -> pal.accent
+}
+
+/** A small rounded status label, tinted by its tone (a flat color with a dark text in the neo looks). */
+@Composable
+private fun InfoPill(text: String, tone: String) {
+    val pal = LocalPal.current
+    val color = toneColor(pal, tone)
+    val shape = RoundedCornerShape(if (pal.neo) pal.radius else 50.dp)
+    Text(
+        text, Modifier.clip(shape).background(if (pal.neo) neoFill(pal, color) else color.copy(alpha = 0.15f)).then(if (pal.neo) Modifier.border(2.dp, pal.border, shape) else Modifier).padding(horizontal = 10.dp, vertical = 4.dp),
+        color = if (pal.neo) pal.ink else color, fontSize = 12.sp, fontWeight = if (pal.neo) FontWeight.Black else FontWeight.Medium,
+    )
+}
+
+/**
+ * The "i" of a session: a status pill per subject at the top (Strava, Garmin, corrections), then one card per subject with its lines, each with
+ * a colored dot, and the lines of the journal that mention the session.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun InfoDialog(state: AppState, a: ActivityRow, detail: ActivityDetail?, intervals: IntervalAnalysis?, textOf: () -> StravaText?, onClose: () -> Unit) {
+    val pal = LocalPal.current
+    val journal by produceState(emptyList<Db.LogRow>(), a.id) { value = withContext(Dispatchers.IO) { state.db.logsMatching(a.id.toString()) } }
+    val sent = remember(a.id) { state.db.stravaSent()["t${a.id}"]?.first }
+    val text = remember(a.id, intervals) { textOf() }
+    val hash = text?.let { (it.name + "\n" + it.description).hashCode().toString(16) }
+    val strava = a.strava
+    val waiting = a.id in state.stravaWaitingIds
+    val identical = strava != null && text != null && strava.description.replace("\r\n", "\n").trim() == text.description.trim() && strava.name.trim() == text.name.trim()
+
+    val stravaLines = buildList {
+        if (!state.stravaConfigured) add(InfoLine("Pas de serveur Strava configuré.", "info"))
+        else if (strava == null) add(if (waiting) InfoLine("En attente : la sortie n'est pas encore sur Strava, l'appli regarde chaque minute.", "warn") else InfoLine("Pas encore reliée à une sortie Strava.", "warn"))
+        else {
+            add(InfoLine("Reliée à « ${strava.name} ».", "ok"))
+            add(if (strava.labels.isEmpty()) InfoLine("Aucun label sur Strava.", "info") else InfoLine("Label : ${strava.labels.joinToString(", ") { l -> StravaSync.labelFr(l) }}.", "info"))
+            if (text != null) add(when {
+                identical -> InfoLine("Texte relu sur le serveur : identique à celui de l'appli.", "ok")
+                sent == hash -> InfoLine("Texte envoyé, pas encore relu à jour sur ce téléphone.", "warn")
+                else -> InfoLine("Texte pas encore envoyé (ou modifié depuis l'envoi).", "warn")
+            })
+        }
+    }
+    val garminLines = buildList {
+        add(if (detail != null) InfoLine("Courbe, tracé et ${detail.laps.size} tours sont sur le téléphone.", "ok") else InfoLine("La courbe et les tours ne sont pas encore chargés.", "warn"))
+        if (state.lastSyncAt > 0) add(InfoLine("Dernière synchro réussie : ${Fmt.relative(state.lastSyncAt)}.", "info"))
+    }
+    val fixLines = buildList {
+        (detail?.let { Intervals.notes(it.laps, it.samples) } ?: emptyList()).forEach { add(InfoLine(it, "warn")) }
+        a.manualCategory?.let { add(InfoLine("Type choisi à la main : ${Categories.label(it)}.", "info")) }
+        a.recoveryModes.takeIf { it.isNotEmpty() }?.let { add(InfoLine("Récupérations choisies à la main : ${it.entries.joinToString(", ") { (k, v) -> "$k ${if (v) "en distance" else "au temps"}" }}.", "info")) }
+        a.speciality?.takeIf { it != "none" }?.let { add(InfoLine("Spé choisie : $it.", "info")) }
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f, fill = false).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Card(highlight = pal.neo) {
+                    Text(if (pal.neo) "CETTE SÉANCE" else "Cette séance", fontSize = 20.sp, fontWeight = if (pal.neo) FontWeight.Black else FontWeight.SemiBold, color = LocalPal.current.text)
+                    Muted(a.title, Modifier.padding(top = 2.dp), size = 13)
+                    androidx.compose.foundation.layout.FlowRow(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        InfoPill(if (!state.stravaConfigured) "Strava · désactivé" else if (strava == null) (if (waiting) "Strava · en attente" else "Strava · non reliée") else if (identical || text == null) "Strava · à jour" else "Strava · à envoyer", if (!state.stravaConfigured) "info" else if (strava == null) "warn" else if (identical || text == null) "ok" else "warn")
+                        InfoPill(if (detail != null) "Garmin · complet" else "Garmin · incomplet", if (detail != null) "ok" else "warn")
+                        InfoPill(if (fixLines.isEmpty()) "Aucune correction" else "${fixLines.size} correction${if (fixLines.size > 1) "s" else ""}", if (fixLines.isEmpty()) "info" else "warn")
+                    }
+                }
+                listOf("Strava" to stravaLines, "Garmin" to garminLines, "Corrigé par l'appli ou par toi" to fixLines.ifEmpty { listOf(InfoLine("Rien à signaler.", "ok")) }).forEach { (title, lines) ->
+                    Card(title = title) {
+                        lines.forEachIndexed { i, l ->
+                            Row(Modifier.fillMaxWidth().padding(top = if (i > 0) 8.dp else 0.dp), verticalAlignment = Alignment.Top) {
+                                Box(Modifier.padding(top = 6.dp).size(10.dp).clip(androidx.compose.foundation.shape.CircleShape).background(toneColor(LocalPal.current, l.tone)))
+                                Text(l.text, Modifier.padding(start = 10.dp), color = LocalPal.current.text, fontSize = 14.sp, lineHeight = 20.sp)
+                            }
+                        }
+                    }
+                }
+                Card(title = "Journal") {
+                    if (journal.isEmpty()) Muted("Aucune ligne pour cette séance.", size = 13)
+                    else Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(LocalPal.current.track).padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        journal.forEach {
+                            Text("${Fmt.dateTime(it.at)}  ${it.tag}  ${it.msg}", color = if (it.level == "E") LocalPal.current.bad else if (it.level == "W") LocalPal.current.warn else LocalPal.current.muted, fontSize = 11.sp, lineHeight = 15.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+            Button(onClose, Modifier.fillMaxWidth()) { Text(if (pal.neo) "FERMER" else "Fermer", fontWeight = if (pal.neo) FontWeight.Black else FontWeight.Medium) }
+        }
+    }
+}
+
+/**
+ * The pieces of a figure, drawn: a stacked bar of what each piece brings to the total (when the pieces have weights), then one gauge row per
+ * piece with its weight in quotes (« 40 % de la note »), its value, an "i" that explains how it is calculated, and one line of why for this session.
+ */
+@Composable
+private fun InsightParts(parts: List<InsightPart>) {
+    val pal = LocalPal.current
+    val colors = listOf(pal.accent, pal.violet, pal.warn, pal.good)
+    var help by remember { mutableStateOf<InsightPart?>(null) }
+    help?.let { h -> HelpDialog(h) { help = null } }
+    Column(Modifier.fillMaxWidth().padding(top = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        val weighted = parts.filter { it.weight != null }
+        if (weighted.size > 1) {
+            val total = weighted.sumOf { it.weight!! * it.fraction }
+            if (total > 0) {
+                Column {
+                    Muted("Ce que chaque part apporte au total", size = 12)
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp).height(18.dp).clip(RoundedCornerShape(if (pal.neo) 5.dp else 9.dp)).then(if (pal.neo) Modifier.border(2.dp, pal.border, RoundedCornerShape(5.dp)) else Modifier)) {
+                        weighted.forEach { p -> Box(Modifier.weight((p.weight!! * p.fraction / total).toFloat().coerceAtLeast(0.001f)).fillMaxHeight().background(if (pal.neo) neoFill(pal, colors[p.tone % 4]) else colors[p.tone % 4])) }
+                    }
+                }
+            }
+        }
+        parts.forEach { p ->
+            Column {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(androidx.compose.foundation.shape.CircleShape).background(colors[p.tone % 4]))
+                        Column(Modifier.padding(start = 8.dp)) {
+                            Text(p.label, color = pal.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            p.weight?.let { Muted("« ${Math.round(it * 100)} % ${p.weightOf} »", size = 11) }
+                        }
+                    }
+                    Text(p.value, color = pal.text, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Box(Modifier.padding(start = 10.dp)) { SmallInfoButton { help = p } }
+                }
+                ProgressBar(p.fraction, colors[p.tone % 4], Modifier.fillMaxWidth().padding(top = 6.dp))
+                Muted(p.detail, Modifier.padding(top = 4.dp), size = 12)
+            }
+        }
+    }
+}
+
+/** The small "i" next to a figure: a round tinted button (a bordered square in the neo looks) that opens its explanation. */
+@Composable
+fun SmallInfoButton(onClick: () -> Unit) {
+    val pal = LocalPal.current
+    val shape = if (pal.neo) RoundedCornerShape(8.dp) else androidx.compose.foundation.shape.CircleShape
+    Box(
+        Modifier.size(26.dp).clip(shape).then(if (pal.neo) Modifier.background(pal.sky).border(2.dp, pal.border, shape) else Modifier.background(pal.accent.copy(alpha = 0.14f))).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Text("i", color = if (pal.neo) pal.ink else pal.accent, fontSize = 13.sp, fontWeight = FontWeight.Black, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic) }
+}
+
+/** The window of an "i": roomy, one sentence, then each scale with the place of this session on it, then the rules, one per line. */
+@Composable
+private fun HelpDialog(part: InsightPart, onClose: () -> Unit) {
+    val pal = LocalPal.current
+    val colors = listOf(pal.accent, pal.violet, pal.warn, pal.good)
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp)) {
+            Card(title = part.label) {
+                Column(Modifier.padding(horizontal = 4.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(26.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        part.weight?.let { InfoPill("« ${Math.round(it * 100)} % ${part.weightOf} »", "info") }
+                        Text(part.help.summary, color = LocalPal.current.text, fontSize = 17.sp, lineHeight = 26.sp, fontWeight = FontWeight.Medium)
+                    }
+                    part.help.scales.forEach { HelpScale(it, colors[part.tone % 4]) }
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        part.help.bullets.forEach { b ->
+                            Row(verticalAlignment = Alignment.Top) {
+                                Box(Modifier.padding(top = 7.dp).size(10.dp).clip(androidx.compose.foundation.shape.CircleShape).background(colors[part.tone % 4]))
+                                Text(b, Modifier.padding(start = 14.dp), color = LocalPal.current.text, fontSize = 15.sp, lineHeight = 22.sp)
+                            }
+                        }
+                    }
+                    Button(onClose, Modifier.fillMaxWidth().height(48.dp)) { Text(if (LocalPal.current.neo) "OK" else "Fermer", fontWeight = FontWeight.Bold) }
+                }
+            }
+        }
+    }
+}
+
+/** A bar from weak to strong with the ticks of the scale under it and a bubble, a stem and a knob where this session sits. */
+@Composable
+private fun HelpScale(scale: ScaleSpec, tone: androidx.compose.ui.graphics.Color) {
+    val pal = LocalPal.current
+    Column {
+        Muted(scale.label, size = 13)
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+            val width = maxWidth
+            val bubble = 74.dp
+            val bubbleX = (width * scale.marker - bubble / 2).coerceIn(0.dp, width - bubble)
+            Column {
+                Box(Modifier.offset(x = bubbleX).width(bubble)) {
+                    Text(scale.markerText, Modifier.fillMaxWidth().clip(RoundedCornerShape(if (pal.neo) pal.radius else 8.dp)).background(if (pal.neo) neoFill(pal, tone) else tone).then(if (pal.neo) Modifier.border(2.dp, pal.border, RoundedCornerShape(pal.radius)) else Modifier).padding(vertical = 5.dp), color = if (pal.neo) pal.ink else androidx.compose.ui.graphics.Color.White, fontSize = 13.sp, fontWeight = FontWeight.Black, textAlign = TextAlign.Center)
+                }
+                Box(Modifier.padding(top = 8.dp).fillMaxWidth().height(22.dp)) {
+                    Row(Modifier.fillMaxSize().clip(RoundedCornerShape(11.dp)).then(if (pal.neo) Modifier.border(2.dp, pal.border, RoundedCornerShape(11.dp)) else Modifier)) {
+                        Box(Modifier.weight(1f).fillMaxSize().background(pal.bad.copy(alpha = 0.35f)))
+                        Box(Modifier.weight(1f).fillMaxSize().background(pal.warn.copy(alpha = 0.35f)))
+                        Box(Modifier.weight(1f).fillMaxSize().background(pal.good.copy(alpha = 0.35f)))
+                    }
+                    Box(Modifier.offset(x = width * scale.marker - 3.dp).width(6.dp).fillMaxHeight().background(pal.text))
+                }
+                Box(Modifier.padding(top = 6.dp).fillMaxWidth().height(34.dp)) {
+                    scale.ticks.forEach { (f, label) ->
+                        val w = 92.dp
+                        val x = (width * f - w / 2).coerceIn(0.dp, width - w)
+                        Text(label, Modifier.offset(x = x).width(w), color = pal.muted, fontSize = 11.sp, lineHeight = 14.sp, textAlign = if (f <= 0f) TextAlign.Start else if (f >= 1f) TextAlign.End else TextAlign.Center)
+                    }
+                }
             }
         }
     }

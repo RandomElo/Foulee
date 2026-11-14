@@ -24,11 +24,15 @@ object StravaTexts {
     }
 
     /** The text of one session, with the two form figures of its day. Null when it is neither an interval session (laps) nor a footing or long run. */
-    fun textOf(a: ActivityRow, analysis: Analysis, laps: List<Lap>?): StravaText? {
+    fun textOf(a: ActivityRow, analysis: Analysis, laps: List<Lap>?, history: SessionHistory?, activities: List<ActivityRow>): StravaText? {
+        val date = LocalDate.parse(a.startLocal.take(10))
+        // On a Sunday run, the review of the week goes at the end of the description
+        val week = if (WeekReviews.isReviewDay(date)) WeekReviews.of(date, activities, analysis, history) else null
+        val recovery = RecoveryCheck.line(readinessOf(a, analysis))
         val iv = if (a.category == "interval") laps?.let { Intervals.analyze(it, a.recoveryModes) } else null
-        if (iv != null) return StravaTextBuilder.build(iv, analysis.weekLoadOn(a), readinessOf(a, analysis), a.speciality)
+        if (iv != null) return StravaTextBuilder.build(iv, analysis.globalLoadOn(a), laps?.let { SessionRemark.of(history?.analyze(a.id, emptyList(), it)) }, a.speciality, week, recovery)
         if (!a.isRun || a.category !in setOf("easy", "long")) return null
-        return StravaTextBuilder.buildEasy(a, analysis.weekLoadOn(a), readinessOf(a, analysis))
+        return StravaTextBuilder.buildEasy(a, analysis.globalLoadOn(a), week, recovery)
     }
 
     private fun itemOf(a: ActivityRow, text: StravaText): TextItem {
@@ -47,7 +51,8 @@ object StravaTexts {
         if (candidates.isEmpty()) return emptyList()
         val laps = db.lapsOf(candidates.map { it.id })
         val an = analysis()
-        return candidates.mapNotNull { a -> textOf(a, an, laps[a.id])?.let { itemOf(a, it) } }.filter { sent[it.key]?.first != it.hash }
+        val history = SessionHistory(activities, db, an)
+        return candidates.mapNotNull { a -> textOf(a, an, laps[a.id], history, activities)?.let { itemOf(a, it) } }.filter { sent[it.key]?.first != it.hash }
     }
 
     // In simulation nothing is remembered as sent: this keeps the same text from going again at every reload
@@ -78,7 +83,7 @@ object StravaTexts {
     /** The text of one session, to send by hand whatever its date. */
     fun single(db: Db, snap: Snapshot, a: ActivityRow): TextItem? {
         if (a.strava == null) return null
-        return textOf(a, snap.analysis, db.lapsOf(listOf(a.id))[a.id])?.let { itemOf(a, it) }
+        return textOf(a, snap.analysis, db.lapsOf(listOf(a.id))[a.id], snap.history, snap.activities)?.let { itemOf(a, it) }
     }
 
     /**

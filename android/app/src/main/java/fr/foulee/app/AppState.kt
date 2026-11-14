@@ -24,11 +24,22 @@ class Snapshot(
 private const val DATA_VERSION = 7
 
 /** Raise it when the interval detection changes: the titles stored in the base are rebuilt from the stored laps. */
-private const val TITLES_VERSION = 13
+private const val TITLES_VERSION = 26
 
 class AppState(private val context: Context) {
     private val settings = Settings(context)
     val auth = GarminAuth(context)
+    fun chooseStyle(style: String) { if (style == "revue" && settings.style != "revue") settings.mode = "auto"; settings.style = style; db.addLog("I", "reglage", "style : $style") }
+    fun chooseMode(mode: String) { settings.mode = mode; db.addLog("I", "reglage", "mode : $mode") }
+    fun saveRefs(vma: Double, r5: Double, r10: Double, rHalf: Double, hrMax: Int, hrRest: Int) {
+        settings.saveRefs(vma, r5, r10, rHalf, hrMax, hrRest)
+        db.addLog("I", "reglage", "références : VMA $vma, 5 km ${UserRefs.formatTime(r5)}, 10 km ${UserRefs.formatTime(r10)}, semi ${UserRefs.formatTime(rHalf)}, FC max ${if (hrMax > 0) hrMax else "auto"}, FC repos ${if (hrRest > 0) hrRest else "auto"}")
+        reload()
+    }
+    val lastSyncAt get() = settings.lastSuccessAt
+    fun recoveryAlertDue() = settings.recoveryAlertDay != LocalDate.now().toString()
+    fun recoveryAlerted() { settings.recoveryAlertDay = LocalDate.now().toString() }
+    val stravaWaitingIds get() = settings.stravaWaiting.mapNotNull { it.substringBefore(":").toLongOrNull() }.toSet()
     val db = Db(context)
 
     var loggedIn by mutableStateOf(settings.loggedIn)
@@ -253,10 +264,38 @@ class AppState(private val context: Context) {
         sync(if (settings.initialized && !db.isEmpty() && settings.dataVersion >= DATA_VERSION) "today" else "full")
     }
 
+    private val reloadSeq = java.util.concurrent.atomic.AtomicInteger()
+
+    /** Rebuilds the screens from the base. Only the latest call may publish: an older one that finishes late would put stale data back on the home page. */
+    private fun publish(mine: Int) {
+        val built = build(db.activities().sortedByDescending { it.startLocal })
+        synchronized(this) { if (mine == reloadSeq.get()) snapshot = built }
+    }
+
+    /** Comes back to the app: shows what a background sync or check wrote meanwhile. */
+    fun refresh() { val mine = reloadSeq.incrementAndGet(); thread { publish(mine) } }
+
     fun reload() = thread {
+        val mine = reloadSeq.incrementAndGet()
         refreshTitles()
-        snapshot = build(db.activities().sortedByDescending { it.startLocal })
+        publish(mine)
         pushTexts()
+        if (settings.diagnostic) runCatching { logDiagnostic(snapshot!!) }
+    }
+
+    /** One line per interval session (score and its parts) and per day (global load and its parts), in the journal under "diag". */
+    private fun logDiagnostic(snap: Snapshot) {
+        val sessions = snap.activities.filter { it.intervalTitle != null }.sortedByDescending { it.startLocal }.take(60)
+        val laps = db.lapsOf(sessions.map { it.id })
+        for (a in sessions) {
+            val an = laps[a.id]?.let { snap.history.analyze(a.id, emptyList(), it) } ?: continue
+            db.addLog("I", "diag", "note ${a.startLocal.take(10)} ${a.intervalTitle?.take(50)} : ${an.score} (intensité ${an.scoreIntensity} [FC ${an.intensityHrPct} % réserve, allure ${an.intensityPaceRatio} % du max], volume ${an.scoreVolume} [${an.effortMinutes?.let { Insights.dec(it, 0) }} min], niveau ${an.scoreLevel}, régularité ${an.scoreRegularity}, écart ${an.paceVariationPct} %, fin ${an.fadePct?.let { Insights.dec(it) }} %, écart d'allure vs habitude ${an.paceIndex} %, verdict ${an.verdict})")
+        }
+        for (p in snap.analysis.load.takeLast(60)) {
+            val g = snap.analysis.globalPartsOn(p.date) ?: continue
+            db.addLog("I", "diag", "charge ${p.date} : ${g.total} (cœur ×${Insights.dec(g.trainingRatio, 2)}, km ${g.volumeRatio?.let { "×" + Insights.dec(it, 2) } ?: "n/d"}, déficit ${Insights.dec(g.deficit, 2)} ${g.unfavorable.joinToString("/") { it.first }}, nuit ${if (g.hasNight) "oui" else "non"})")
+        }
+        db.addLog("I", "diag", "référence de semaine (20/20) : ${Insights.dec(snap.analysis.weekRef, 0)} points de charge")
     }
 
     /** What the last sending of titles and descriptions did, shown in the Strava card. */

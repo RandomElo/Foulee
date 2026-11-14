@@ -60,16 +60,11 @@ fun UserScreen(state: AppState, snap: Snapshot?, onOpen: (ActivityRow) -> Unit =
     val report by produceState<ProfileReport?>(null, snap) {
         value = if (snap == null) null else withContext(Dispatchers.Default) { Profile.compute(snap) }
     }
+    val neoLook = pal.neo
     var openDimension by remember { mutableStateOf<Dimension?>(null) }
     openDimension?.let { DimensionDialog(it) { openDimension = null } }
     Page {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Avatar(state.photo, state.firstName, 56.dp)
-            Column(Modifier.padding(start = 14.dp)) {
-                Text(state.firstName ?: "Utilisateur", fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = pal.text)
-                Muted("Ton profil de coureur", size = 14)
-            }
-        }
+        ProfileHeader(state, "Ton profil de coureur", state.firstName ?: "Utilisateur")
         report?.let { r ->
             r.summary?.let { Card(highlight = true) { Text(it, color = pal.text, fontSize = 15.sp, lineHeight = 22.sp) } }
             if (r.dimensions.isNotEmpty()) {
@@ -79,20 +74,21 @@ fun UserScreen(state: AppState, snap: Snapshot?, onOpen: (ActivityRow) -> Unit =
                         val low = d === weakest
                         Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { openDimension = d }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(d.label, Modifier.width(104.dp), color = pal.text, fontSize = 14.sp, fontWeight = if (low) FontWeight.SemiBold else FontWeight.Normal)
-                            ProgressBar(d.score / 100f, if (low) pal.warn else pal.accent, Modifier.weight(1f))
-                            Text("${d.score}", Modifier.width(36.dp), textAlign = TextAlign.End, color = if (low) pal.warn else pal.muted, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                            val tone = if (d.score >= 85) pal.good else if (d.score >= 50) pal.accent else pal.warn
+                            ProgressBar(d.score / 100f, tone, Modifier.weight(1f))
+                            Text("${d.score}", Modifier.width(36.dp), textAlign = TextAlign.End, color = if (neoLook) pal.text else tone, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-                    Muted("Touche une ligne pour le détail.", Modifier.padding(top = 4.dp))
+                    Muted("Vert : objectif atteint (85 et plus). Touche une ligne pour voir comment elle est calculée.", Modifier.padding(top = 4.dp))
                 }
                 weakest?.let { w ->
-                    Card(title = "Point faible", onClick = { openDimension = w }) {
+                    Card(title = "À travailler", onClick = { openDimension = w }) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(w.label, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = pal.text)
                             Text("${w.score} / 100", Modifier.padding(start = 10.dp), color = pal.warn, fontWeight = FontWeight.Medium, fontSize = 14.sp)
                         }
                         Text(
-                            w.detail.replaceFirstChar { it.uppercase() } + if (w.score >= 85) ". Rien d'inquiétant : c'est ton score le plus bas, mais il reste bon." else ". ${w.advice}",
+                            w.detail.replaceFirstChar { it.uppercase() } + ". ${w.advice}",
                             Modifier.padding(top = 6.dp), color = pal.muted, fontSize = 14.sp, lineHeight = 20.sp,
                         )
                     }
@@ -116,9 +112,19 @@ fun UserScreen(state: AppState, snap: Snapshot?, onOpen: (ActivityRow) -> Unit =
             if (watch.isNotEmpty()) FindingsCard("Alertes", watch, pal.warn)
             if (strengths.isEmpty() && watch.isEmpty() && r.figures.isNotEmpty()) Card { Muted("Pas assez d'historique récent pour une analyse détaillée.", size = 14) }
         }
-        // A problem with the server stays visible even while the card is folded, and goes away as soon as an exchange works again
-        if (state.stravaProblem.isNotEmpty()) Text(state.stravaProblem, color = pal.warn, fontSize = 14.sp, lineHeight = 20.sp)
-        StravaCard(state, onOpen)
+        // His zones and his EF pace belong to the profile, not to the settings
+        if (snap != null) ProgressionCard(snap)
+        if (snap != null) ZonesCard(snap)
+        FoldSection("Réglages", "Style, références, détection, Strava") {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                StyleCard(state)
+                RefsCard(state)
+                DetectionSettings(state)
+                // A problem with the server stays visible even while the card is folded, and goes away as soon as an exchange works again
+                if (state.stravaProblem.isNotEmpty()) Text(state.stravaProblem, color = pal.warn, fontSize = 14.sp, lineHeight = 20.sp)
+                StravaCard(state, onOpen)
+            }
+        }
         FoldSection("Synchronisation", "État de la synchronisation avec Garmin Connect", openWhen = SyncEngine.current != null) { SyncSections(state, snap) }
     }
 }
@@ -139,38 +145,58 @@ private fun FindingsCard(title: String, findings: List<Finding>, color: androidx
     }
 }
 
-/** One line of the profile: what is measured, the target, and what to do. */
+/** One line of the profile, explained with a gauge, the three bands (to work on, fine, target) with the place of the score, then what it is made of. */
 @Composable
 private fun DimensionDialog(d: Dimension, onClose: () -> Unit) {
     val pal = LocalPal.current
     val low = d.score < 85
+    val tone = if (d.score < 50) pal.bad else if (low) pal.warn else pal.good
     AlertDialog(
         onDismissRequest = onClose,
         containerColor = pal.card, titleContentColor = pal.text, textContentColor = pal.text,
         confirmButton = { TextButton(onClose) { Text("Fermer") } },
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(d.label, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                Text("${d.score} / 100", color = if (low) pal.warn else pal.accent, fontSize = 16.sp, fontWeight = FontWeight.Medium)
-            }
-        },
+        title = { Text(d.label, fontWeight = FontWeight.SemiBold) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                ProgressBar(d.score / 100f, if (low) pal.warn else pal.accent, Modifier.fillMaxWidth())
-                d.dots?.let { (filled, total) ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        for (i in 0 until total) Box(Modifier.size(12.dp).clip(CircleShape).background(if (i < filled) (if (low) pal.warn else pal.accent) else pal.muted.copy(alpha = 0.25f)))
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Gauge(d.score, "sur 100", 150.dp) }
+                Column {
+                    Box(Modifier.fillMaxWidth().height(16.dp).clip(RoundedCornerShape(8.dp))) {
+                        Row(Modifier.fillMaxSize()) {
+                            Box(Modifier.weight(50f).fillMaxSize().background(pal.bad.copy(alpha = 0.35f)))
+                            Box(Modifier.weight(35f).fillMaxSize().background(pal.warn.copy(alpha = 0.35f)))
+                            Box(Modifier.weight(15f).fillMaxSize().background(pal.good.copy(alpha = 0.35f)))
+                        }
+                        Box(Modifier.fillMaxWidth(d.score / 100f).fillMaxSize()) { Box(Modifier.align(Alignment.CenterEnd).width(5.dp).fillMaxSize().background(tone)) }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+                        Muted("à travailler", Modifier.weight(50f), size = 11)
+                        Muted("correct", Modifier.weight(35f), size = 11)
+                        Muted("objectif 85", Modifier.weight(15f), size = 11)
                     }
                 }
-                if (d.detail.isNotEmpty()) Text(d.detail.replaceFirstChar { it.uppercase() }, color = pal.text, fontSize = 14.sp, lineHeight = 20.sp)
-                if (d.how.isNotEmpty()) Muted(d.how, size = 13)
-                if (low) Text(d.advice, color = pal.text, fontSize = 14.sp, lineHeight = 20.sp)
+                d.dots?.let { (filled, total) ->
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        for (i in 0 until total) Box(Modifier.size(14.dp).clip(CircleShape).background(if (i < filled) tone else pal.muted.copy(alpha = 0.25f)))
+                        Muted("$filled sur $total", Modifier.padding(start = 6.dp), size = 13)
+                    }
+                }
+                if (d.detail.isNotEmpty()) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(tone.copy(alpha = 0.12f)).padding(12.dp), verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Filled.CheckCircle, null, Modifier.size(18.dp), tint = tone)
+                    Text(d.detail.replaceFirstChar { it.uppercase() }, Modifier.padding(start = 10.dp), color = pal.text, fontSize = 14.sp, lineHeight = 20.sp)
+                }
+                if (d.how.isNotEmpty()) Row(verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Filled.Sync, null, Modifier.size(16.dp).padding(top = 2.dp), tint = pal.muted)
+                    Muted("Comment c'est calculé : ${d.how}", Modifier.padding(start = 8.dp), size = 13)
+                }
+                if (low) Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(pal.track).padding(12.dp), verticalAlignment = Alignment.Top) {
+                    Icon(Icons.Filled.Warning, null, Modifier.size(18.dp), tint = pal.warn)
+                    Text(d.advice, Modifier.padding(start = 10.dp), color = pal.text, fontSize = 14.sp, lineHeight = 20.sp)
+                }
             }
         },
     )
 }
 
-/** The small pill in the header of the Strava card: whether the server answers, readable while the card is folded. */
 @Composable
 private fun StravaLinkPill(state: AppState) {
     val pal = LocalPal.current

@@ -13,8 +13,8 @@ class Figure(val label: String, val value: String, val caption: String? = null)
 class Dimension(val label: String, val score: Int, val advice: String, val detail: String = "", val dots: Pair<Int, Int>? = null, val how: String = "")
 
 class ProfileReport(val figures: List<Figure>, val dimensions: List<Dimension>, val findings: List<Finding>, val summary: String?) {
-    /** The lowest score: always there, even when nothing is wrong (the screen says so when it is high). */
-    val weakest: Dimension? get() = dimensions.minByOrNull { it.score }
+    /** The lowest score, only when it is really low: a 97 that happens to be the lowest of five good scores is not a weak point. */
+    val weakest: Dimension? get() = dimensions.minByOrNull { it.score }?.takeIf { it.score < WEAK_BELOW }
 }
 
 /**
@@ -22,6 +22,9 @@ class ProfileReport(val figures: List<Figure>, val dimensions: List<Dimension>, 
  * intensity mix from the kinds of session, form from Garmin's VO2 max, and the body from the daily wellness rows.
  * Every sentence comes from a measured number and a threshold, nothing is guessed.
  */
+/** Under this score a dimension is something to work on (85 and over is the goal reached, in between is fine). */
+const val WEAK_BELOW = 70
+
 object Profile {
     private fun avg(values: List<Double?>) = values.filterNotNull().takeIf { it.isNotEmpty() }?.average()
 
@@ -181,11 +184,14 @@ object Profile {
 
         val first = runs.minOf { it.startLocal }.take(10).let(LocalDate::parse)
         val strengths = findings.filter { it.good }
-        val weakest = dimensions.minByOrNull { it.score }
+        val weakest = dimensions.minByOrNull { it.score }?.takeIf { it.score < WEAK_BELOW }
+        // What the page tells is the present: the last weeks, not the total since the first run (that one goes in the key figures)
+        figures += Figure("Depuis ${Fmt.month(first)} ${first.year}", "${Math.round(runs.sumOf { it.distance ?: 0.0 } / 1000)} km", "${runs.size} sorties")
         val summary = buildString {
-            append("Depuis ${Fmt.month(first)} ${first.year}, tu as couru ${Math.round(runs.sumOf { it.distance ?: 0.0 } / 1000)} km en ${runs.size} sorties.")
+            if (weeklyKm != null && weeklyRuns != null) append("Ces 12 dernières semaines : ${Fmt.num(weeklyKm, 0)} km et ${Fmt.num(weeklyRuns)} sorties par semaine.")
+            else append("Depuis ${Fmt.month(first)} ${first.year}, tu as couru ${Math.round(runs.sumOf { it.distance ?: 0.0 } / 1000)} km en ${runs.size} sorties.")
             strengths.firstOrNull()?.let { append(" Point fort du moment : ${it.title.replaceFirstChar { c -> c.lowercase() }}.") }
-            weakest?.let { append(" Point faible : ${it.label.lowercase()}.") }
+            weakest?.let { append(" À travailler : ${it.label.lowercase()}.") }
         }
         return ProfileReport(figures, dimensions, findings, summary)
     }

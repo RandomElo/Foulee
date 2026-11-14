@@ -91,6 +91,11 @@ private fun StepRow(step: Step) {
             }
             step.error?.let { Text(it, color = pal.bad, fontSize = 13.sp, lineHeight = 18.sp) }
             if (step.error == null && step.status == "success") step.note?.let { Muted(it, size = 13) }
+            // A step that waits says what it waits for, and for how long already
+            if (step.status == "running") step.live?.let { text ->
+                val waited by produceState(0L, text, step.liveSince) { while (true) { value = (System.currentTimeMillis() - step.liveSince) / 1000; delay(1000) } }
+                Muted("$text · depuis $waited s", size = 13)
+            }
         }
     }
 }
@@ -245,20 +250,6 @@ fun SyncSections(state: AppState, snap: Snapshot?) {
             }
         }
 
-        DetectionCard(state)
-
-        Card(title = "Notification de fin de course") {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-                Checkbox(state.autoCheck, { state.toggleAutoCheck(it) })
-                Column(Modifier.padding(start = 4.dp, top = 12.dp)) {
-                    Text("Vérification automatique", fontWeight = FontWeight.Medium, color = pal.text)
-                    Muted("Toutes les 5 minutes environ (30 la nuit), l'appli regarde s'il y a une nouvelle course sur Garmin, avec un seul petit appel, et envoie la notification (distance, allure, forme, fatigue). Décoché, rien ne se lance tout seul.", size = 14)
-                }
-            }
-            OutlinedButton({ state.test() }, Modifier.fillMaxWidth().padding(top = 8.dp), enabled = !state.busy) { Text("Tester avec la dernière course") }
-            if (state.message.isNotEmpty()) Muted(state.message, Modifier.padding(top = 8.dp), size = 14)
-        }
-
         FoldCard(title = "Historique des synchronisations") {
             if (snap == null || snap.runs.isEmpty()) {
                 Muted("Pas encore d'historique.", size = 14)
@@ -391,5 +382,27 @@ private fun JournalCard(state: AppState) {
             Text(line(it), Modifier.padding(vertical = 2.dp), color = when (it.level) { "E" -> pal.bad; "W" -> pal.warn; else -> pal.muted }, fontSize = 11.sp, lineHeight = 15.sp)
         }
         if (rows.size > 60) Muted("Les 60 plus récentes sont affichées, « Copier » prend les ${rows.size}.", Modifier.padding(top = 6.dp))
+    }
+}
+
+
+/** Reglages of the detection: what the app does when a run ends, and the state of the permissions behind it. */
+@Composable
+fun DetectionSettings(state: AppState) {
+    val pal = LocalPal.current
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        DetectionCard(state)
+
+        Card(title = "Notification de fin de course") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                Checkbox(state.autoCheck, { state.toggleAutoCheck(it) })
+                Column(Modifier.padding(start = 4.dp, top = 12.dp)) {
+                    Text("Vérification automatique", fontWeight = FontWeight.Medium, color = pal.text)
+                    Muted("Toutes les 5 minutes environ (30 la nuit), l'appli regarde s'il y a une nouvelle course sur Garmin, avec un seul petit appel, et envoie la notification (distance, allure, forme, fatigue). Décoché, rien ne se lance tout seul.", size = 14)
+                }
+            }
+            OutlinedButton({ state.test() }, Modifier.fillMaxWidth().padding(top = 8.dp), enabled = !state.busy) { Text("Tester avec la dernière course") }
+            if (state.message.isNotEmpty()) Muted(state.message, Modifier.padding(top = 8.dp), size = 14)
+        }
     }
 }

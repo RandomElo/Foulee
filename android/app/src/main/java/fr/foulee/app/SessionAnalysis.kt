@@ -48,6 +48,17 @@ class SessionAnalysis(
     val paragraphs: List<String>,
     /** One-line version for the home page */
     val summary: String,
+    /** "Note de la séance" on 10: half the level against his comparable sessions, half the regularity of the efforts. */
+    val score: Double? = null,
+    /** The two halves of the note, on 10, and the figures behind them (null when not known) */
+    val scoreLevel: Double? = null, val scoreRegularity: Double? = null, val paceVariationPct: Double? = null,
+    val scoreIntensity: Double? = null, val scoreVolume: Double? = null, val intensityHrPct: Double? = null, val intensityPaceRatio: Double? = null, val effortMinutes: Double? = null,
+    /** Speed (m/s) of the first and of the last third of the main reps, to say how much he slowed down */
+    val firstThirdSpeed: Double? = null, val lastThirdSpeed: Double? = null,
+    /** Average duration of the reps of the main group, to know how much their pace may wander (a 50 s rep is not read like a 4 min one) */
+    val mainRepSeconds: Double? = null,
+    /** Index in the groups of the analysis of that main group */
+    val mainGroupIndex: Int? = null,
 )
 
 private class RepRecord(val sessionId: Long, val label: String, val date: String, val duration: Double, val speed: Double, val hr: Double?)
@@ -81,6 +92,17 @@ class SessionHistory(private val activities: List<ActivityRow>, private val db: 
     }
 
     private val sessions: List<SessionRecord> by lazy { build() }
+
+    /** What the app says about an interval session in short: the remark (only when something was not great) and the first sentence of the analysis. */
+    class SessionNote(val remark: String?, val summary: String?)
+
+    private val notes = HashMap<Long, SessionNote>()
+
+    /** The note of an interval session, for the weekly review; null for any other session. */
+    @Synchronized
+    fun noteOf(id: Long): SessionNote? = notes[id] ?: sessions.firstOrNull { it.id == id }?.let { s ->
+        analyze(id, emptyList(), s.analysis.laps.map { it.lap })?.let { SessionNote(SessionRemark.of(it), it.summary) }?.also { notes[id] = it }
+    }
 
     /** The latest interval session with its laps, for the home page, or null. */
     fun latest(): ActivityRow? = sessions.lastOrNull()?.let { s -> activities.firstOrNull { it.id == s.id } }
@@ -315,7 +337,7 @@ class SessionHistory(private val activities: List<ActivityRow>, private val db: 
         val pct = abs(diff)
         val secs = ((1000 / refSpeed) * (pct / 100)).roundToInt()
         val text = if (strength == "aucune") "${spec.label} : pas de lien visible avec tes allures sur ${Txt.plural(pairs.size, "séance")}."
-        else "Quand $worse, tes répétitions sont en moyenne ${dec(pct)} % plus lentes${if (secs != 0) " (environ $secs s/km)" else ""}, sur ${Txt.plural(pairs.size, "séance")}."
+        else "Quand $worse, tes répétitions sont en moyenne ${if (secs != 0) "${secs / 60}:${(secs % 60).toString().padStart(2, '0')} min au km plus lentes" else "à peine plus lentes"}, sur ${Txt.plural(pairs.size, "séance")}."
         return Correlation(spec.key, spec.label, pairs.size, (rho * 100).roundToInt() / 100.0, (p * 1000).roundToInt() / 1000.0, strength, -(pct * 10).roundToInt() / 10.0, text)
     }
 
@@ -326,7 +348,7 @@ class SessionHistory(private val activities: List<ActivityRow>, private val db: 
         return (if (efforts.isNotEmpty()) efforts else a.groups).reduce { best, g -> if (g.reps.size * g.avgDuration > best.reps.size * best.avgDuration) g else best }
     }
 
-    private class Fade(val pct: Double, val worst: Int, val best: Int, val collapseAt: Int?)
+    private class Fade(val pct: Double, val worst: Int, val best: Int, val collapseAt: Int?, val firstSpeed: Double, val lastSpeed: Double)
 
     /** Pace of the last third of the reps versus the first third, % (negative = slowed down). */
     private fun fadeOf(g: RepGroup): Fade? {
@@ -343,7 +365,7 @@ class SessionHistory(private val activities: List<ActivityRow>, private val db: 
                 break
             }
         }
-        return Fade(round1(pct), speeds.indexOf(speeds.min()) + 1, speeds.indexOf(speeds.max()) + 1, collapseAt)
+        return Fade(round1(pct), speeds.indexOf(speeds.min()) + 1, speeds.indexOf(speeds.max()) + 1, collapseAt, start, mean(speeds.takeLast(third)))
     }
 
     /** Heart-rate drop during the first minute of each recovery (bpm). */
@@ -426,6 +448,12 @@ class SessionHistory(private val activities: List<ActivityRow>, private val db: 
         }
     }
 
+    /** The gap between the first and the last third of the reps as a pace gap: "0:10 min au km". */
+    private fun gap(f: Fade): String {
+        val seconds = Math.round(abs(1000 / f.lastSpeed - 1000 / f.firstSpeed)).toInt()
+        return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')} min au km"
+    }
+
     private fun describeCourse(seed: Int, ia: IntervalAnalysis, recovery: HrRecovery?): String? {
         val g = mainGroup(ia)
         val fade = fadeOf(g)
@@ -437,16 +465,16 @@ class SessionHistory(private val activities: List<ActivityRow>, private val db: 
                 parts += if (fade.collapseAt != null) Txt.pick(
                     seed + 2,
                     listOf(
-                        "Ça s'est gâté à partir de la ${Txt.ordinal(fade.collapseAt)} répétition : la fin de série est ${dec(-fade.pct)} % plus lente que le début.",
-                        "Le début était bon, mais à partir de la ${Txt.ordinal(fade.collapseAt)} tu n'as plus retrouvé ton allure (${dec(-fade.pct)} % plus lent sur la fin).",
+                        "Ça s'est gâté à partir de la ${Txt.ordinal(fade.collapseAt)} répétition : la fin de série est ${gap(fade)} plus lente que le début.",
+                        "Le début était bon, mais à partir de la ${Txt.ordinal(fade.collapseAt)} tu n'as plus retrouvé ton allure (${gap(fade)} plus lent sur la fin).",
                     ),
-                ) else "Tu as perdu ${dec(-fade.pct)} % d'allure entre le début et la fin de la série."
+                ) else "Tu as perdu ${gap(fade)} entre le début et la fin de la série."
             } else if (fade.pct >= 1.5) {
                 parts += Txt.pick(
                     seed + 2,
                     listOf(
-                        "Tu as fini plus vite que tu n'as commencé (${dec(fade.pct)} % plus rapide sur le dernier tiers), signe qu'il restait de la marge.",
-                        "Belle gestion : le dernier tiers de la série est ${dec(fade.pct)} % plus rapide que le premier.",
+                        "Tu as fini plus vite que tu n'as commencé (${gap(fade)} plus rapide sur le dernier tiers), signe qu'il restait de la marge.",
+                        "Belle gestion : le dernier tiers de la série est ${gap(fade)} plus rapide que le premier.",
                     ),
                 )
             } else if (spread <= 4) {
@@ -584,6 +612,77 @@ class SessionHistory(private val activities: List<ActivityRow>, private val db: 
         return null
     }
 
+    /**
+     * Note on 10. Level: 6 when the session is as good as his usual ones, 1.5 more per unit of spread above (the verdict's own scale), taken
+     * from the comparison with his past sessions; absent while there is nothing to compare with, then only the regularity counts. Regularity:
+     * the variation of the pace between the reps of a same type (1 % = 10, 6 % = 2.5), less a point when the last reps fade by 4 % or more.
+     */
+    private class ScoreParts(
+        val score: Double, val level: Double?, val regularity: Double?, val cv: Double?,
+        val intensity: Double?, val volume: Double?, val hrPct: Double?, val paceRatio: Double?, val effortSeconds: Double?,
+    )
+
+    /**
+     * What the athlete could hold for [seconds] at best, from his own references: his 5 km record gives the speed around 17 minutes and a
+     * Riegel-like decay (exponent 0.06) gives the longer and shorter ones down to 6 minutes (where it meets his VMA); below 6 minutes the speed
+     * rises up to 12 % over the VMA at 30 s (the anaerobic part).
+     */
+    private fun maxSpeedFor(seconds: Double): Double {
+        if (UserRefs.rec5 <= 0 || UserRefs.vma <= 0) return Double.POSITIVE_INFINITY
+        val v5 = 5000 / UserRefs.rec5
+        val vma = UserRefs.vma / 3.6
+        return if (seconds >= 360) v5 * (seconds / UserRefs.rec5).pow(-0.06) else vma * (1 + 0.12 * (1 - max(seconds, 30.0) / 360))
+    }
+
+    /**
+     * "Note de la séance" on 10, four parts that all must be good (it is meant to stay demanding):
+     * - intensity (40 %): how hard the efforts were, from the heart rate (60 % of the heart-rate reserve = 0, 95 % = 10; the rep's average and its peak count half each) and from the pace against
+     *   what he could hold for that long (75 % of it = 0, 100 % = 10), averaged over the reps in proportion to their duration;
+     * - volume (15 %): the time spent in efforts (25 minutes = 10);
+     * - level (25 %): the reps against his own similar sessions (6 = as usual), when there is something to compare with;
+     * - regularity (20 %): the variation of the pace between reps of a type, tolerated more on short reps (the GPS and the start of the rep add noise),
+     *   less 1 or 2 points when the last reps fade by 4 % or 8 %.
+     * Warm-ups and cool-downs (blocks longer than 25 minutes) never count. A part that cannot be known is left out and the others count more.
+     */
+    private fun scoreOf(session: SessionRecord, z: Double?, fadePct: Double?): ScoreParts? {
+        val groups = session.analysis.groups
+        val efforts = session.reps.filter { groups.getOrNull(it.group)?.avgDuration?.let { d -> d in 15.0..(25 * 60.0) } == true }
+        if (efforts.isEmpty()) return null
+        fun durationOf(r: RepVerdict) = groups[r.group].reps[r.rep - 1].lap.duration ?: 0.0
+        val totalSeconds = efforts.sumOf(::durationOf)
+        if (totalSeconds <= 0) return null
+
+        val refs = analysis.refs
+        val reserve = max(refs.max - refs.rest, 1.0)
+        // The heart rate of a rep: half its average (it lags behind the effort) and half its peak
+        fun repHr(r: RepVerdict): Double? { val lap = groups[r.group].reps[r.rep - 1].lap; val avg = lap.averageHr?.takeIf { it > 0 } ?: return null; return (avg + (lap.maxHr?.takeIf { it >= avg } ?: avg)) / 2 }
+        val hrParts = efforts.mapNotNull { r -> repHr(r)?.let { hr -> val pct = (hr - refs.rest) / reserve; Triple(pct, ((pct - 0.60) / 0.35 * 10).coerceIn(0.0, 10.0), durationOf(r)) } }
+        val paceParts = efforts.map { r -> val ratio = r.speed / maxSpeedFor(durationOf(r)); Triple(ratio, ((ratio - 0.75) / 0.25 * 10).coerceIn(0.0, 10.0), durationOf(r)) }
+        fun weighted(parts: List<Triple<Double, Double, Double>>, pick: (Triple<Double, Double, Double>) -> Double) = parts.sumOf { pick(it) * it.third } / parts.sumOf { it.third }
+        val hrScore = if (hrParts.isNotEmpty()) weighted(hrParts) { it.second } else null
+        val paceScore = weighted(paceParts) { it.second }
+        val intensity = listOfNotNull(hrScore, paceScore).average()
+        val volume = (totalSeconds / 60 / 25 * 10).coerceIn(0.0, 10.0)
+
+        // Short reps vary naturally: the variation is divided by up to 2 below two minutes
+        val cvs = efforts.groupBy { it.group }.values.filter { it.size >= 2 }.map { reps ->
+            val cv = sd(reps.map { it.speed }) / mean(reps.map { it.speed }) * 100
+            val seconds = mean(reps.map(::durationOf))
+            (cv / sqrt((120 / seconds).coerceIn(1.0, 4.0))) to seconds * reps.size
+        }
+        val cv = if (cvs.isEmpty()) null else cvs.sumOf { it.first * it.second } / cvs.sumOf { it.second }
+        val fadePenalty = if (fadePct != null && fadePct <= -8) 2 else if (fadePct != null && fadePct <= -4) 1 else 0
+        val regularity = cv?.let { (10 - (it - 1) * 1.5 - fadePenalty).coerceIn(0.0, 10.0) }
+        val level = z?.let { (6 + 1.5 * it).coerceIn(0.0, 10.0) }
+
+        val weights = listOf(intensity to 0.40, volume to 0.15, level to 0.25, regularity to 0.20).filter { it.first != null }
+        val score = weights.sumOf { it.first!! * it.second } / weights.sumOf { it.second }
+        return ScoreParts(
+            round1(score), level?.let(::round1), regularity?.let(::round1), cv?.let(::round1), round1(intensity), round1(volume),
+            hrParts.takeIf { it.isNotEmpty() }?.let { round1(weighted(it) { p -> p.first } * 100) }, round1(weighted(paceParts) { it.first } * 100), totalSeconds,
+        )
+    }
+
     /** Full analysis of an interval session, or null for a steady run. [samples] and [laps] are the ones of the activity. */
     fun analyze(activityId: Long, samples: List<Sample>, laps: List<Lap>): SessionAnalysis? {
         val session = sessions.firstOrNull { it.id == activityId } ?: return null
@@ -598,6 +697,7 @@ class SessionHistory(private val activities: List<ActivityRow>, private val db: 
         val center = if (indices.size >= 8) median(indices) else 0.0
         val spread = if (indices.size >= 8) max(1.4826 * median(indices.map { abs(it - center) }), 1.5) else 3.0
         val verdict = verdictOf(session.paceIndex, session.hrDelta, fade?.pct, center, spread)
+        val parts = scoreOf(session, if (session.paceIndex != null) (adjustedIndex(session.paceIndex, session.hrDelta) - center) / spread else null, fade?.pct)
         // Detected again on the laps passed in: the lap start times are looked up by object identity
         val ownAnalysis = Intervals.analyze(laps)
         val recovery = ownAnalysis?.let { hrRecovery(it, laps, samples) }
@@ -608,7 +708,8 @@ class SessionHistory(private val activities: List<ActivityRow>, private val db: 
         )
         return SessionAnalysis(
             verdict, verdictLabels.getValue(verdict), session.paceIndex, session.paceIndex?.let { ((1000 / session.avgSpeed) * (-it / 100)).roundToInt() }, session.hrDelta, fade?.pct, recovery,
-            session.reps, session.factors, contribs, correlations, others.count { it.paceIndex != null }, paragraphs, paragraphs[0],
+            session.reps, session.factors, contribs, correlations, others.count { it.paceIndex != null }, paragraphs, paragraphs[0], parts?.score, parts?.level, parts?.regularity, parts?.cv,
+            parts?.intensity, parts?.volume, parts?.hrPct, parts?.paceRatio, parts?.effortSeconds?.let { it / 60 }, fade?.firstSpeed, fade?.lastSpeed, mainGroup(session.analysis).avgDuration, session.analysis.groups.indexOf(mainGroup(session.analysis)),
         )
     }
 }

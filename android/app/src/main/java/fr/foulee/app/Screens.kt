@@ -12,6 +12,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.background
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.draw.rotate
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -50,6 +56,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -58,10 +66,33 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
 
+/** True when a page is shown inside another scrolling page (Health and Load share the Forme tab): it then draws no scroll of its own. */
+val LocalEmbedded = androidx.compose.runtime.staticCompositionLocalOf { false }
+
+/** The scroll of the page on screen, so that a section that opens low on the screen can be brought up at once (no animation). */
+class PageScroll(val state: androidx.compose.foundation.ScrollState) {
+    var top = 0f
+    var height = 0f
+}
+val LocalPageScroll = androidx.compose.runtime.staticCompositionLocalOf<PageScroll?> { null }
+
 @Composable
 fun Page(content: @Composable () -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) { content() }
+    if (LocalEmbedded.current) {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) { content() }
+        return
+    }
+    val scroll = rememberScrollState()
+    val page = remember { PageScroll(scroll) }
+    androidx.compose.runtime.CompositionLocalProvider(LocalPageScroll provides page) {
+        Column(
+            Modifier.fillMaxSize().androidx_track(page).verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) { content() }
+    }
 }
+
+private fun Modifier.androidx_track(page: PageScroll) = this.onGloballyPositioned { page.top = it.positionInRoot().y; page.height = it.size.height.toFloat() }
 
 /* ---------- Accueil ---------- */
 
@@ -70,18 +101,13 @@ fun HomeScreen(state: AppState, snap: Snapshot, onSeeAll: () -> Unit, onOpen: (A
     val pal = LocalPal.current
     var panel by rememberSaveable { mutableStateOf("") }
     val analysis = snap.analysis
-    val readiness = analysis.readiness
+    // The form of the day needs this morning's night: without a sync of the watch there is none
+    val readiness = analysis.readinessToday
     val load = analysis.today
     val hello = if (java.time.LocalTime.now().hour >= 18) "Bonsoir" else "Bonjour"
 
     Page {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Avatar(state.photo, state.firstName)
-            Column(Modifier.padding(start = 12.dp)) {
-                Muted(Fmt.longDate(LocalDate.now()), size = 14)
-                Text(hello + (state.firstName?.let { " $it" } ?: ""), fontSize = 24.sp, fontWeight = FontWeight.SemiBold, color = pal.text)
-            }
-        }
+        ProfileHeader(state, Fmt.longDate(LocalDate.now()), hello + (state.firstName?.let { " $it" } ?: ""))
         headline(analysis)?.let { Headline(it) }
 
         Tile(
@@ -90,20 +116,22 @@ fun HomeScreen(state: AppState, snap: Snapshot, onSeeAll: () -> Unit, onOpen: (A
             tint = pal.accent,
         )
         Tile(
-            Icons.Filled.MonitorWeight, "Charge, 7 jours", load?.let { Fmt.num(it.week) } ?: "–", "/ 20",
-            "${trend(snap.compare.delta)} vs ${Fmt.num(snap.compare.avgPoints)} les 3 semaines d'avant · voir pourquoi",
+            Icons.Filled.MonitorWeight, "Charge globale", analysis.globalToday?.let { Fmt.num(it) } ?: "–", "/ 20",
+            "Charge 7 jours ${trend(snap.compare.delta)} vs ${Fmt.num(snap.compare.avgPoints)} les 3 semaines d'avant · voir pourquoi",
             open = panel == "load", onClick = { panel = if (panel == "load") "" else "load" },
             tint = pal.violet,
         )
         if (panel == "load") LoadPanel(snap.compare, onOpen)
-        val tone = readiness?.let { if (it.score >= 66) pal.good else if (it.score >= 52) pal.accent else if (it.score >= 38) pal.warn else pal.bad } ?: pal.good
+        val tone = readiness?.let { if (it.score >= 66) pal.good else if (it.score >= 52) pal.neutral else if (it.score >= 38) pal.warn else pal.bad } ?: pal.good
         Tile(
             Icons.Filled.MonitorHeart, "Forme du jour", readiness?.score?.toString() ?: "–", readiness?.let { "/ 100" },
-            readiness?.let { "${it.label} · sommeil, VFC, FC au repos" } ?: "Pas encore de nuit enregistrée",
+            readiness?.let { "${it.label} · sommeil, VFC, FC au repos" } ?: "Pas de nuit synchronisée ce matin : synchronise ta montre",
             open = if (readiness != null) panel == "readiness" else null, onClick = if (readiness != null) ({ panel = if (panel == "readiness") "" else "readiness" }) else null,
             tint = tone,
         )
         if (panel == "readiness" && readiness != null) ReadinessPanel(readiness)
+
+        WeekReviews.forHome(LocalDate.now(), snap.activities, analysis, snap.history)?.let { WeekReviewCard(it) }
 
         LastIntervalCard(state, snap, onOpen)
 
@@ -123,7 +151,7 @@ private fun trend(delta: Double): String {
 
 /** Short text under the greeting, from the readiness factors that stand out. */
 private fun headline(analysis: Analysis): String? {
-    val r = analysis.readiness ?: return null
+    val r = analysis.readinessToday ?: return null
     val top = r.factors.filter { it.key != "fatigue" && it.baselineDisplay != null }.maxByOrNull { Math.abs(it.z) }
     val bits = "Forme du jour à ${r.score}/100 : ${r.label.lowercase()}."
     return if (top != null && Math.abs(top.z) >= 0.5) "$bits ${top.label} à ${top.display}, ${top.note}." else bits
@@ -233,16 +261,29 @@ private fun iconOf(type: String): ImageVector = when {
     else -> Icons.Filled.EmojiEvents
 }
 
+/** One color per kind of session, the same in the list, the sheet and the choice of the type. */
+fun categoryColor(pal: Pal, category: String) = when (category) {
+    "interval" -> pal.pink
+    "long" -> pal.sky
+    "competition" -> pal.yellow
+    "easy" -> pal.mint
+    else -> pal.lilac
+}
+
 @Composable
 fun ActivityLine(a: ActivityRow, effort: Double? = null, onOpen: (ActivityRow) -> Unit) {
     val pal = LocalPal.current
     Row(Modifier.fillMaxWidth().clickable { onOpen(a) }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(40.dp).clip(CircleShape).background(pal.accent.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
-            Icon(iconOf(a.type), null, Modifier.size(20.dp), tint = pal.accent)
+        Box(
+            Modifier.size(40.dp).clip(CircleShape).background(if (pal.neo) categoryColor(pal, a.category) else pal.accent.copy(alpha = 0.1f))
+                .then(if (pal.neo) Modifier.border(2.dp, pal.border, CircleShape) else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(iconOf(a.type), null, Modifier.size(20.dp), tint = if (pal.neo) pal.ink else pal.accent)
         }
         Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             Text(a.title, fontWeight = FontWeight.Medium, maxLines = 2, color = pal.text)
-            Muted("${Categories.label(a.category)} · ${Fmt.date(a.startLocal)}" + (effort?.let { " · effort ${Fmt.num(it)}" } ?: "") + if (a.id < 0) " · Strava seulement" else "")
+            Muted("${Categories.label(a.category)} · ${Fmt.date(a.startLocal)}" + if (a.id < 0) " · Strava seulement" else "")
         }
         Column(horizontalAlignment = Alignment.End) {
             // A Strava-only outing without distance (weight training) shows its duration alone, not "0 km" and "n/d"
@@ -264,6 +305,7 @@ fun ActivitiesScreen(snap: Snapshot, onReview: () -> Unit, onOpen: (ActivityRow)
     val everything = remember(snap) { (snap.activities + snap.stravaOnly).sortedByDescending { it.startLocal } }
     val counts = everything.groupingBy { it.category }.eachCount()
     val list = if (filter == "all") everything else everything.filter { it.category == filter }
+    val neoStyle = LocalPal.current.neo
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Column(Modifier.padding(top = 20.dp)) {
@@ -280,7 +322,23 @@ fun ActivitiesScreen(snap: Snapshot, onReview: () -> Unit, onOpen: (ActivityRow)
                 }
             }
         }
-        items(list, key = { it.id }) { a -> Card { ActivityLine(a, snap.analysis.effortOf(a), onOpen) } }
+        // Grouped by week, with the distance of the week
+        val weeks = list.groupBy { LocalDate.parse(it.startLocal.take(10)).let { d -> d.minusDays(d.dayOfWeek.value - 1L) } }.toList().sortedByDescending { it.first }
+        weeks.forEach { (monday, runs) ->
+            item(key = "w$monday") {
+                val pal = LocalPal.current
+                val km = Math.round(runs.filter { it.isRun }.sumOf { it.distance ?: 0.0 } / 1000)
+                if (pal.neo) Text("SEM. DU ${Fmt.dayMonth(monday).uppercase()} · $km KM", Modifier.padding(top = 10.dp).background(pal.band).padding(horizontal = 10.dp, vertical = 4.dp), color = pal.onBand, fontSize = 12.sp, fontWeight = FontWeight.Black)
+                else Row(Modifier.fillMaxWidth().padding(top = 14.dp, start = 4.dp, end = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("Semaine du ${Fmt.dayMonth(monday)}", color = pal.text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("$km km", color = pal.muted, fontSize = 14.sp)
+                }
+            }
+            items(runs, key = { it.id }) { a ->
+                val pal = LocalPal.current
+                Card { ActivityLine(a, if (neoStyle) null else snap.analysis.effortOf(a), onOpen) }
+            }
+        }
         item { Spacer(Modifier.height(16.dp)) }
     }
 }
@@ -321,7 +379,7 @@ fun LoadScreen(snap: Snapshot) {
     val today = snap.analysis.today
     var selected by remember { mutableStateOf<Int?>(null) }
     Page {
-        Section("Charge d'entraînement", "Charge et fatigue sur les 3 derniers mois")
+        Section("Charge globale", "Charge, récupération et fatigue sur les 3 derniers mois")
         if (today == null) {
             Card { Muted("Pas encore d'activité pour calculer la charge.", size = 14) }
             return@Page
@@ -329,32 +387,32 @@ fun LoadScreen(snap: Snapshot) {
         val zone = today.fatigue?.let(Insights::zoneOf)
         val weekAgo = snap.analysis.load.getOrNull(snap.analysis.load.size - 8)
         val trend = weekAgo?.let { Math.round((today.week - it.week) * 10) / 10.0 }
-        Card(title = "Charge d'entraînement") {
+        val global = remember(snap) { points.takeLast(28).map { snap.analysis.globalOn(it.date) } }
+        val globalToday = snap.analysis.globalToday
+        Card(title = "Charge globale") {
+            Score({ Muted("Aujourd'hui", size = 14) }, globalToday, 20, "Ta charge des derniers jours comparée à ton habitude, alourdie quand ta récupération se dégrade.")
             Score(
-                { Muted("7 derniers jours", size = 14) }, today.week, 20, "${Math.round(today.weekKm)} km, ${Txt.plural(today.weekSessions, "séance")}",
+                { Muted("Charge des 7 derniers jours", size = 14) }, today.week, 20, "${Math.round(today.weekKm)} km, ${Txt.plural(today.weekSessions, "séance")}",
                 trend?.takeIf { it != 0.0 }?.let { "${if (it > 0) "↗ +" else "↘ −"}${Fmt.num(Math.abs(it))}" },
             )
-            Score({ Muted("4 dernières semaines", size = 14) }, today.month, 20, "${Math.round(today.monthKm)} km, ${Txt.plural(today.monthSessions, "séance")}")
             Score({ Muted("Fatigue", size = 14); zone?.let { ZonePill(it) } }, today.fatigue, 10, "Ta semaine comparée à ton mois (3 à 7 = équilibré)")
             Text(Insights.adviceOf(zone), Modifier.padding(top = 8.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(pal.track).padding(12.dp), color = pal.text, fontSize = 14.sp, lineHeight = 20.sp)
-            Muted("Charge sur 20 : 20 = tes semaines (ou tes mois) les plus chargés depuis le début de l'historique.", Modifier.padding(top = 8.dp))
         }
-        FitnessCard(snap.fitness)
         val labels = points.indices.filter { it % 30 == 0 }.map { it to Fmt.dayMonth(LocalDate.parse(points[it].date)) }
+        val labels28 = global.indices.filter { it % 7 == 0 }.map { it to Fmt.dayMonth(LocalDate.parse(points.takeLast(28)[it].date)) }
         fun readout(p: LoadPoint?, text: (LoadPoint) -> String) = if (p == null) null else "${Fmt.dayMonth(LocalDate.parse(p.date))} · ${text(p)}"
         val point = selected?.let { points.getOrNull(it) }
-        Card(title = "Charge des 4 dernières semaines (sur 20)") {
-            readout(point) { "${Fmt.num(it.month)} / 20" }?.let { Text(it, Modifier.padding(bottom = 4.dp), color = pal.text, fontWeight = FontWeight.Medium, fontSize = 14.sp) }
-            LineChart(listOf(Series(points.map { it.month }, pal.violet, fill = true)), 0.0, 20.0, labels, selected = selected, onSelect = { selected = it })
+        var selected28 by remember { mutableStateOf<Int?>(null) }
+        Card(title = "Charge globale, 28 derniers jours (sur 20)") {
+            LineChart(listOf(Series(global, pal.violet, fill = true)), 0.0, 20.0, labels28, selected = selected28, readout = selected28?.let { i -> global.getOrNull(i)?.let { v -> "${Fmt.dayMonth(LocalDate.parse(points.takeLast(28)[i].date))} · ${Fmt.num(v)} / 20" } }, onSelect = { selected28 = it })
         }
         Card(title = "Fatigue (sur 10)") {
-            readout(point) { p -> p.fatigue?.let { "${Fmt.num(it)} / 10" } ?: "pas assez d'historique" }?.let { Text(it, Modifier.padding(bottom = 4.dp), color = pal.text, fontWeight = FontWeight.Medium, fontSize = 14.sp) }
-            LineChart(listOf(Series(points.map { it.fatigue }, pal.warn)), 0.0, 10.0, labels, selected = selected, onSelect = { selected = it })
+            LineChart(listOf(Series(points.map { it.fatigue }, pal.warn)), 0.0, 10.0, labels, selected = selected, readout = readout(point) { p -> p.fatigue?.let { "${Fmt.num(it)} / 10" } ?: "pas assez d'historique" }, onSelect = { selected = it })
         }
         Card(title = "Comment lire ces chiffres") {
             listOf(
-                "Effort (sur 10) : la dureté d'une séance. Environ 2 pour un footing court, 4 à 5 pour une sortie longue facile, 6 à 8 pour du fractionné ou du tempo, 9 et plus pour une course longue.",
-                "Charge 7 jours et 4 semaines (sur 20) : la somme des efforts de toutes tes séances sur la période, footings compris. 20 correspond à tes semaines (ou tes mois) les plus chargés depuis le début de l'historique.",
+                "Charge globale (sur 20) : ta charge des 7 derniers jours (fréquence cardiaque et kilomètres courus) comparée à ce que tu encaisses d'habitude sur 6 semaines. Si tu charges plus que d'habitude et que ta récupération se dégrade (VFC, FC de repos, sommeil sur 7 nuits), elle monte davantage. Une bonne récupération ne la fait jamais descendre. Tout est calculé par l'appli, rien ne vient de la charge de Garmin.",
+                "Charge des 7 derniers jours (sur 20) : la somme des efforts de toutes tes séances sur la période, footings compris. 20 correspond à tes semaines les plus chargées depuis le début de l'historique.",
                 "Fatigue (sur 10) : ta semaine comparée à la semaine moyenne de ton mois. Sous 3, tu es frais ; de 3 à 7, la charge est équilibrée ; au-delà de 8,5, c'est la surcharge.",
             ).forEach { Text(it, Modifier.padding(vertical = 5.dp), color = pal.muted, fontSize = 14.sp, lineHeight = 20.sp) }
         }

@@ -78,12 +78,12 @@ private val sky = Color(0xFF7DD3FC)
 private val explanations = mapOf(
     "recovery" to Explanation(
         "Prêt pour une séance dure ?", "Savoir si tu peux faire une séance dure.", "Ta nuit, comparée à tes 30 derniers jours.", { 20.0 },
-        { _, p -> listOf(Zone(38.0, "À ménager", p.bad), Zone(52.0, "Fatigué", p.warn), Zone(66.0, "Correct", p.neutral), Zone(82.0, "Prêt", p.good), Zone(100.0, "Top", greenStrong)) },
+        { _, p -> listOf(Zone(38.0, "À ménager", p.bad), Zone(52.0, "Fatigué", p.warn), Zone(66.0, "Correct", p.accent), Zone(82.0, "Prêt", p.good), Zone(100.0, "Top", greenStrong)) },
         listOf("VFC", "Sommeil", "FC au repos", "Body Battery", "Stress", "Charge", "vs tes 30 derniers jours"),
     ),
     "sleep" to Explanation(
         "Tu dors assez en ce moment ?", "Récupérer : le corps assimile l'entraînement en dormant.", "Montre au poignet, 7 dernières nuits.", { 5.0 },
-        { _, p -> listOf(Zone(6.5, "Court", p.warn), Zone(7.5, "Correct", p.neutral), Zone(9.0, "Bon", p.good)) },
+        { _, p -> listOf(Zone(6.5, "Court", p.warn), Zone(7.5, "Correct", p.accent), Zone(9.0, "Bon", p.good)) },
         listOf("Durée", "Score Garmin", "7 dernières nuits", "vs 60 nuits d'avant"),
     ),
     "hrv" to Explanation(
@@ -239,7 +239,7 @@ private fun MetricCard(m: HealthMetric, hoverDate: String?, onHover: (String?) -
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(m.status)
-                Text(m.statusLabel, Modifier.padding(start = 6.dp), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = pal.muted)
+                Text(m.statusLabel, Modifier.padding(start = 6.dp), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = statusColor(m.status))
             }
         }
         Row(Modifier.padding(top = 10.dp), verticalAlignment = Alignment.Bottom) {
@@ -365,11 +365,12 @@ fun HealthScreen(snap: Snapshot) {
         value = withContext(Dispatchers.IO) { HealthSummary.compute(days, snap.activities.sortedBy { it.startLocal }, snap.daily, snap.analysis) }
     }
     Page {
-        Section("Santé", "Tout ce que mesure ta montre, résumé en cinq indicateurs")
+        Section("Santé", "Tout ce que mesure ta montre, résumé en quatre indicateurs")
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(7 to "7 j", 30 to "30 j", 90 to "3 mois", 365 to "1 an").forEach { (d, label) -> Chip(label, days == d) { days = d } }
         }
-        metrics?.forEach { MetricCard(it, hover) { d -> hover = d } }
+        // "Condition" (pace at 150 bpm) is gone from this page by choice
+        metrics?.filter { it.key != "fitness" }?.forEach { MetricCard(it, hover) { d -> hover = d } }
         Row(Modifier.fillMaxWidth().clickable { showRaw = !showRaw }.padding(vertical = 4.dp), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Text("${if (showRaw) "Masquer" else "Voir"} toutes les données de la montre", color = pal.accent, fontWeight = FontWeight.Medium, fontSize = 14.sp)
             Icon(Icons.Filled.ExpandMore, null, Modifier.padding(start = 4.dp).size(18.dp).rotate(if (showRaw) 180f else 0f), tint = pal.accent)

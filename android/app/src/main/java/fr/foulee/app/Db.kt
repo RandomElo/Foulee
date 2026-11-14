@@ -320,6 +320,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "foulee.db", null, 13) {
     /** Days stored with the current columns (older rows are fetched again). */
     fun dailyDates(): Set<String> = readableDatabase.rawQuery("SELECT date FROM daily WHERE ver >= 2", null).use { c -> generateSequence { if (c.moveToNext()) c.getString(0) else null }.toSet() }
 
+    /** Days since [since] whose row has neither a night nor an HRV: the sleep of that night had not been processed by Garmin when the day was fetched. */
+    fun daysWithoutNight(since: String): Set<String> = readableDatabase.rawQuery(
+        "SELECT date FROM daily WHERE date >= ? AND sleep_seconds IS NULL AND hrv_night IS NULL", arrayOf(since),
+    ).use { c -> generateSequence { if (c.moveToNext()) c.getString(0) else null }.toSet() }
+
     fun isEmpty(): Boolean = readableDatabase.rawQuery("SELECT 1 FROM activities LIMIT 1", null).use { !it.moveToFirst() }
 
     fun addRun(r: RunRecord) {
@@ -447,6 +452,11 @@ class Db(context: Context) : SQLiteOpenHelper(context, "foulee.db", null, 13) {
             db.execSQL("DELETE FROM app_log WHERE at < ? OR id NOT IN (SELECT id FROM app_log ORDER BY id DESC LIMIT 3000)", arrayOf<Any>(System.currentTimeMillis() - 14L * 86_400_000))
         } catch (_: Exception) {
         }
+    }
+
+    /** The journal lines that mention [text] (an activity id, say), newest first. */
+    fun logsMatching(text: String, limit: Int = 30): List<LogRow> = readableDatabase.rawQuery("SELECT at, level, tag, msg FROM app_log WHERE msg LIKE ? ORDER BY id DESC LIMIT $limit", arrayOf("%$text%")).use { c ->
+        generateSequence { if (c.moveToNext()) LogRow(c.getLong(0), c.getString(1), c.getString(2), c.getString(3)) else null }.toList()
     }
 
     class LogRow(val at: Long, val level: String, val tag: String, val msg: String)
