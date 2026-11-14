@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { navigateur, type EtatNavigateur } from "../navigateur";
+import { texteErreur } from "../lib/format";
 
 const mo = (o: number) => `${Math.round(o / 1e6)} Mo`;
 
@@ -13,7 +14,7 @@ export function Navigateur() {
   const [message, setMessage] = useState<{ ok: boolean; texte: string } | null>(null);
   const [occupe, setOccupe] = useState<"telecharge" | "test" | null>(null);
 
-  const charger = useCallback(() => { navigateur.etat().then(setEtat).catch((e) => setMessage({ ok: false, texte: String(e) })); }, []);
+  const charger = useCallback(() => { navigateur.etat().then(setEtat).catch((e) => setMessage({ ok: false, texte: texteErreur(e) })); }, []);
   useEffect(charger, [charger]);
 
   const telecharger = async () => {
@@ -22,13 +23,13 @@ export function Navigateur() {
       await navigateur.telecharger((recus, total) => setProgres({ recus, total }));
       setMessage({ ok: true, texte: "Chrome for Testing est installé et vérifié." });
     } catch (e) {
-      setMessage({ ok: false, texte: String(e) });
+      setMessage({ ok: false, texte: texteErreur(e) });
     } finally { setOccupe(null); setProgres(null); charger(); }
   };
   const tester = async () => {
     setOccupe("test"); setMessage(null);
     try { setMessage({ ok: true, texte: `Ça marche : ${await navigateur.tester()}.` }); }
-    catch (e) { setMessage({ ok: false, texte: String(e) }); }
+    catch (e) { setMessage({ ok: false, texte: texteErreur(e) }); }
     finally { setOccupe(null); }
   };
 

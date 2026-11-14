@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtClock, fmtDayLong, fmtDayShort, fmtKm, fmtLong, fmtMeters, fmtPace, fmtTime, fmtWeekday1 } from "./format";
+import { fmtClock, fmtDayLong, fmtDayShort, fmtKm, fmtLong, fmtMeters, fmtPace, fmtTime, fmtWeekday1, texteErreur } from "./format";
 
 const NB = " ";
 
@@ -28,5 +28,13 @@ describe("formats français", () => {
     expect(fmtWeekday1("2026-11-09")).toBe("L");
     expect(fmtTime("2026-11-13 18:05:00")).toBe(`18${NB}h${NB}05`);
     expect(fmtTime("2026-11-13 07:30:00")).toBe(`7${NB}h${NB}30`);
+  });
+});
+
+describe("texteErreur", () => {
+  it("enlève le préfixe des Error et garde les chaînes des commandes Tauri", () => {
+    expect(texteErreur(new Error("déjà en cours"))).toBe("déjà en cours");
+    expect(texteErreur("Nolio n'est plus connecté")).toBe("Nolio n'est plus connecté");
+    expect(texteErreur(42)).toBe("42");
   });
 });

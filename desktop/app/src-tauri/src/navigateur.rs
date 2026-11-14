@@ -310,9 +310,8 @@ impl Session {
         }
     }
 
-    /// Ouvre `url` dans un nouvel onglet, attend la fin du chargement, évalue `script` (une expression, promesse acceptée) et rend sa valeur JSON.
-    #[allow(dead_code)] // utilisé par les lecteurs Nolio et Strava (jalons 3b et 3c)
-    pub fn evaluer(&mut self, url: &str, script: &str) -> Result<Value, String> {
+    /// Ouvre `url` dans un nouvel onglet et attend la fin du chargement. Rend (cible, session).
+    fn ouvrir_onglet(&mut self, url: &str) -> Result<(String, String), String> {
         let cible = self.appeler("Target.createTarget", json!({ "url": "about:blank" }), None)?["targetId"].as_str().ok_or("onglet non créé")?.to_string();
         let sid = self.appeler("Target.attachToTarget", json!({ "targetId": cible, "flatten": true }), None)?["sessionId"].as_str().ok_or("session non créée")?.to_string();
         self.appeler("Page.enable", json!({}), Some(&sid))?;
@@ -321,19 +320,55 @@ impl Session {
         loop {
             let etat = self.appeler("Runtime.evaluate", json!({ "expression": "document.readyState", "returnByValue": true }), Some(&sid)).ok();
             if etat.as_ref().and_then(|e| e["result"]["value"].as_str()) == Some("complete") {
-                break;
+                return Ok((cible, sid));
             }
             if debut.elapsed() > Duration::from_secs(60) {
+                let _ = self.appeler("Target.closeTarget", json!({ "targetId": cible }), None);
                 return Err("la page n'a pas fini de charger".into());
             }
             std::thread::sleep(Duration::from_millis(150));
         }
-        let r = self.appeler("Runtime.evaluate", json!({ "expression": script, "awaitPromise": true, "returnByValue": true }), Some(&sid))?;
-        let _ = self.appeler("Target.closeTarget", json!({ "targetId": cible }), None);
+    }
+
+    fn evaluer_dans(&mut self, sid: &str, script: &str) -> Result<Value, String> {
+        let r = self.appeler("Runtime.evaluate", json!({ "expression": script, "awaitPromise": true, "returnByValue": true }), Some(sid))?;
         if let Some(e) = r.get("exceptionDetails") {
             return Err(format!("erreur dans la page : {}", e["exception"]["description"].as_str().or(e["text"].as_str()).unwrap_or("inconnue")));
         }
         Ok(r["result"]["value"].clone())
+    }
+
+    /// Ouvre `url` dans un nouvel onglet, attend la fin du chargement, évalue `script` (une expression, promesse acceptée) et rend sa valeur JSON.
+    pub fn evaluer(&mut self, url: &str, script: &str) -> Result<Value, String> {
+        let (cible, sid) = self.ouvrir_onglet(url)?;
+        let r = self.evaluer_dans(&sid, script);
+        let _ = self.appeler("Target.closeTarget", json!({ "targetId": cible }), None);
+        r
+    }
+
+    /// Charge `url` une seule fois puis évalue plusieurs scripts dans la même page. `suivant` reçoit le résultat du script précédent
+    /// (rien au premier appel) et rend le script suivant, ou `None` pour finir. Une erreur de `suivant` arrête la série.
+    pub fn evaluer_en_serie(&mut self, url: &str, suivant: &mut dyn FnMut(Option<Value>) -> Result<Option<String>, String>) -> Result<(), String> {
+        let mut script = match suivant(None)? {
+            Some(s) => s,
+            None => return Ok(()),
+        };
+        let (cible, sid) = self.ouvrir_onglet(url)?;
+        let r = (|| loop {
+            let v = self.evaluer_dans(&sid, &script)?;
+            match suivant(Some(v))? {
+                Some(s) => script = s,
+                None => return Ok(()),
+            }
+        })();
+        let _ = self.appeler("Target.closeTarget", json!({ "targetId": cible }), None);
+        r
+    }
+
+    /// Adresses des onglets de page ouverts (pour savoir où en est l'utilisateur pendant la connexion).
+    pub fn urls_pages(&mut self) -> Result<Vec<String>, String> {
+        let r = self.appeler("Target.getTargets", json!({}), None)?;
+        Ok(r["targetInfos"].as_array().map(|a| a.iter().filter(|t| t["type"] == "page").filter_map(|t| t["url"].as_str().map(str::to_string)).collect()).unwrap_or_default())
     }
 
     pub fn version(&mut self) -> Result<String, String> {

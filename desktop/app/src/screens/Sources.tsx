@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { secrets, type SecretName } from "../secrets";
+import { texteErreur } from "../lib/format";
 
 interface Champ { nom: SecretName; label: string; secret: boolean }
 interface Source { id: string; titre: string; aide: string; champs: Champ[] }
@@ -7,7 +8,6 @@ interface Source { id: string; titre: string; aide: string; champs: Champ[] }
 const SOURCES: Source[] = [
   { id: "garmin", titre: "Garmin Connect", aide: "Tes séances et ta santé (sommeil, VFC, FC de repos).", champs: [
     { nom: "garmin-email", label: "E-mail", secret: false }, { nom: "garmin-motdepasse", label: "Mot de passe", secret: true } ] },
-  { id: "nolio", titre: "Nolio", aide: "Les séances que ton coach te prévoit.", champs: [{ nom: "nolio-cle", label: "Clé d'API (nolio_sk_…)", secret: true }] },
 ];
 
 /**
@@ -36,13 +36,13 @@ export function Sources() {
       await rafraichir();
       setMessage({ ok: true, texte: `${s.titre} : enregistré dans le trousseau.` });
     } catch (e) {
-      setMessage({ ok: false, texte: `${s.titre} : ${String(e)}` });
+      setMessage({ ok: false, texte: `${s.titre} : ${texteErreur(e)}` });
     } finally { setBusy(null); }
   };
   const retirer = async (s: Source) => {
     setBusy(s.id);
     try { for (const c of s.champs) await secrets.supprimer(c.nom); await rafraichir(); setMessage({ ok: true, texte: `${s.titre} : identifiants effacés.` }); }
-    catch (e) { setMessage({ ok: false, texte: `${s.titre} : ${String(e)}` }); }
+    catch (e) { setMessage({ ok: false, texte: `${s.titre} : ${texteErreur(e)}` }); }
     finally { setBusy(null); }
   };
 

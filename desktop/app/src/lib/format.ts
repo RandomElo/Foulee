@@ -43,3 +43,6 @@ export const fmtDayMonth = opt({ day: "numeric", month: "short" });
 export const fmtWeekday1 = (iso: string): string => new Intl.DateTimeFormat("fr-FR", { weekday: "narrow", timeZone: "UTC" }).format(utc(iso)).toUpperCase();
 export const cap = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 export const fmtTime = (startLocal: string): string => `${Number(startLocal.slice(11, 13))}${NB}h${NB}${startLocal.slice(14, 16)}`;
+
+/** Le texte d'une erreur à montrer : le message d'une `Error` sans son préfixe « Error: », ou la chaîne renvoyée par une commande Tauri. */
+export const texteErreur = (e: unknown): string => (e instanceof Error ? e.message : String(e));

@@ -2,6 +2,7 @@ import { useData } from "../DataProvider";
 import { repo } from "../repo";
 import { useTheme } from "../theme/ThemeProvider";
 import { Navigateur } from "./Navigateur";
+import { Nolio } from "./Nolio";
 import { Sources } from "./Sources";
 import type { Family, Mode } from "../theme/themes";
 
@@ -37,6 +38,7 @@ export function Reglages() {
           className="w-full rounded-[10px] border-[length:var(--outline)] border-line bg-card px-3 py-2 text-ink" />
       </section>
       <Sources />
+      <Nolio />
       <Navigateur />
       {import.meta.env.DEV ? (
         <section className="card" aria-labelledby="h-dev">

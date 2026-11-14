@@ -1,5 +1,6 @@
 mod base;
 mod navigateur;
+mod nolio;
 mod secrets;
 
 use rusqlite::Connection;
@@ -132,6 +133,86 @@ async fn navigateur_tester(app: AppHandle) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
+// ---------- Nolio (lecture seule, par le navigateur piloté) ----------
+
+static NOLIO_OCCUPE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static NOLIO_ANNULER: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Un seul usage du profil Nolio à la fois (connexion ou synchronisation) : deux navigateurs sur le même profil se bloquent.
+struct OccupeNolio;
+impl OccupeNolio {
+    fn prendre() -> Result<Self, String> {
+        use std::sync::atomic::Ordering;
+        if NOLIO_OCCUPE.swap(true, Ordering::SeqCst) {
+            return Err("Nolio est déjà en cours d'utilisation".into());
+        }
+        NOLIO_ANNULER.store(false, Ordering::SeqCst);
+        Ok(OccupeNolio)
+    }
+}
+impl Drop for OccupeNolio {
+    fn drop(&mut self) {
+        NOLIO_OCCUPE.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+fn profil_nolio(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(dossier_app(app)?.join("navigateur").join("profils").join("nolio"))
+}
+
+fn navigateur_choisi(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    let nav = navigateur::choisir(&dossier_app(app)?).ok_or("aucun navigateur disponible : installe Chrome, Edge ou Chromium, ou télécharge Chrome for Testing")?;
+    Ok(std::path::PathBuf::from(nav.chemin))
+}
+
+/// Ouvre une fenêtre sur Nolio : l'utilisateur s'y connecte lui-même (rien n'est rempli ni stocké par l'appli). Rend la main une fois connecté.
+#[tauri::command]
+async fn nolio_connecter(app: AppHandle) -> Result<(), String> {
+    let occupe = OccupeNolio::prendre()?;
+    let (exe, profil) = (navigateur_choisi(&app)?, profil_nolio(&app)?);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _occupe = occupe;
+        nolio::connecter(&exe, &profil, nolio::ORIGINE, &NOLIO_ANNULER, std::time::Duration::from_secs(600))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Lit le calendrier Nolio (35 jours passés, 200 à venir ; commentaires et structures jusqu'à 21 jours à venir) sans fenêtre.
+#[tauri::command]
+async fn nolio_synchroniser(app: AppHandle) -> Result<nolio::Bilan, String> {
+    let occupe = OccupeNolio::prendre()?;
+    let (exe, profil) = (navigateur_choisi(&app)?, profil_nolio(&app)?);
+    let a = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let _occupe = occupe;
+        let aujourdhui = nolio::aujourd_hui();
+        let (debut, fin, fiches) = (nolio::decaler(&aujourdhui, -35)?, nolio::decaler(&aujourdhui, 200)?, nolio::decaler(&aujourdhui, 21)?);
+        let base = a.state::<Base>();
+        let evenements = a.clone();
+        nolio::synchroniser(
+            &exe,
+            &profil,
+            nolio::ORIGINE,
+            &debut,
+            &fin,
+            &fiches,
+            &NOLIO_ANNULER,
+            |evs| nolio::enregistrer(&*verrou(base.inner())?, evs, &aujourdhui),
+            |fait, total| {
+                let _ = evenements.emit("nolio-progression", Progression { recus: fait as u64, total: total as u64 });
+            },
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+fn nolio_annuler() {
+    NOLIO_ANNULER.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
 #[tauri::command]
 fn db_infos(b: State<'_, Base>) -> Result<(String, String), String> {
     base::infos(&*verrou(b.inner())?)
@@ -150,7 +231,7 @@ pub fn run() {
             app.manage(Base(Mutex::new(conn)));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos, secret_definir, secret_existe, secret_supprimer, navigateur_etat, navigateur_telecharger, navigateur_annuler, navigateur_tester])
+        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos, secret_definir, secret_existe, secret_supprimer, navigateur_etat, navigateur_telecharger, navigateur_annuler, navigateur_tester, nolio_connecter, nolio_synchroniser, nolio_annuler])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Foulée");
 }

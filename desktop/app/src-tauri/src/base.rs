@@ -7,7 +7,7 @@ use serde_json::{Map, Number, Value as Json};
 use std::path::Path;
 
 /// Une entrée par version, jamais modifiée après publication.
-const MIGRATIONS: &[&str] = &[
+pub(crate) const MIGRATIONS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS reglages (cle TEXT PRIMARY KEY, valeur TEXT NOT NULL);",
     // 2 : séances, tours, corrections de rôle, santé du jour, ressenti
     "CREATE TABLE activities (
@@ -47,6 +47,28 @@ const MIGRATIONS: &[&str] = &[
      );",
     // 3 : effort perçu (RPE, 1 à 10)
     "ALTER TABLE feelings ADD COLUMN rpe INTEGER CHECK (rpe BETWEEN 1 AND 10);",
+    // 4 : calendrier Nolio lu par le navigateur piloté (séances prévues et réalisées, compétitions, notes)
+    "CREATE TABLE nolio_evenements (
+        id TEXT PRIMARY KEY,
+        genre TEXT NOT NULL CHECK (genre IN ('prevu', 'reel', 'note')),
+        competition INTEGER NOT NULL DEFAULT 0,
+        date TEXT NOT NULL,
+        heure TEXT,
+        titre TEXT NOT NULL DEFAULT '',
+        sport TEXT,
+        duree_s INTEGER,
+        distance_m REAL,
+        deniv_m REAL,
+        allure_s_km INTEGER,
+        allure_plafond INTEGER NOT NULL DEFAULT 0,
+        rpe_prevu INTEGER,
+        ressenti INTEGER,
+        rpe_percu INTEGER,
+        commentaire TEXT,
+        structure TEXT,
+        lu_le TEXT NOT NULL
+     );
+     CREATE INDEX nolio_evenements_date ON nolio_evenements (date);",
 ];
 
 /// Ouvre (ou crée) la base chiffrée avec une clé de 32 octets en hexadécimale, puis joue les migrations.
