@@ -43,10 +43,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 a, img { -webkit-user-drag: none; user-drag: none; }
 body { -webkit-user-select: text; user-select: text; }
 
-/* Contour de focus bleu, bien visible, dans tous les thèmes : seulement quand on navigue au clavier (pas après un clic de souris),
-   et toujours dans les champs de saisie. `data-input` est posé par main.tsx. */
+/* Focus : contour bleu du thème (la couleur d'accent), seulement au clavier ; dans un champ de saisie, il remplace le trait du champ
+   (dessiné dedans) au lieu de s'y ajouter. `data-input` est posé par main.tsx. */
 :focus-visible { outline: none; }
-html[data-input="keyboard"] :focus-visible, input:focus-visible, textarea:focus-visible { outline: 3px solid #1D6BFF; outline-offset: 2px; }
+html[data-input="keyboard"] :focus-visible { outline: 3px solid var(--c-accent); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible, html[data-input="keyboard"] input:focus-visible, html[data-input="keyboard"] textarea:focus-visible { outline: 2.5px solid var(--c-accent); outline-offset: -2.5px; }
 }
 
 @layer components {
