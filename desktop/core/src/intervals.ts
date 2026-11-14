@@ -144,7 +144,10 @@ interface Cut {
   fast: number;
 }
 
-function inferredRoles(laps: Lap[]): LapRole[] | null {
+/** Ce que la déduction par les allures a dû faire : sert à signaler un doute, jamais à changer le résultat. */
+export interface Diag { gap: number; fallback: boolean; trimmed: boolean }
+
+function inferredRoles(laps: Lap[], diag?: Diag): LapRole[] | null {
   const candidates = laps.filter((l) => !isTiny(l) && speedOf(l) > 0);
   const speeds = distinct(candidates.map(speedOf)).sort((a, b) => b - a);
   let widestGap = 0;
@@ -183,6 +186,7 @@ function inferredRoles(laps: Lap[]): LapRole[] | null {
   }
   if (candidates.length - chosen.fast < (chosen.fast - 1) / 2.0) return null;
   const roles = trimBeforeLongLap(chosen.roles, laps);
+  if (diag) { diag.gap = chosen.gap; diag.fallback = chosen !== widest; diag.trimmed = roles.some((r, i) => r !== chosen.roles[i]); }
   const first = roles.indexOf("WORK");
   const last = roles.lastIndexOf("WORK");
   return roles.map((r, i) => (r !== "RECOVERY" ? r : i < first ? "WARMUP" : i > last ? "COOLDOWN" : "RECOVERY"));
@@ -363,6 +367,10 @@ interface Bucket {
 export type RoleOverrides = (LapRole | null)[];
 
 export function analyze(laps: Lap[], recoveryModes: Map<string, boolean> = new Map(), overrides?: RoleOverrides): IntervalAnalysis | null {
+  return analyzeWith(laps, recoveryModes, overrides);
+}
+
+function analyzeWith(laps: Lap[], recoveryModes: Map<string, boolean>, overrides?: RoleOverrides, diag?: Diag): IntervalAnalysis | null {
   const kept: number[] = [];
   laps.forEach((l, i) => { if (l.distance !== null && d0(l.duration) > 0) kept.push(i); });
   const usable = kept.map((i) => laps[i] as Lap);
@@ -370,7 +378,7 @@ export function analyze(laps: Lap[], recoveryModes: Map<string, boolean> = new M
 
   const tagged = structuredRoles(usable);
   const forced = overrides !== undefined && overrides.some((o) => o !== null);
-  let roles = tagged ?? inferredRoles(usable);
+  let roles = tagged ?? inferredRoles(usable, diag);
   if (forced) {
     // Le point de départ est ce que la détection a trouvé (ou rien), puis les choix de l'utilisateur l'emportent.
     const base: LapRole[] = roles ?? usable.map(() => "OTHER");
@@ -552,12 +560,16 @@ export function layout(a: IntervalAnalysis): Layout {
 
 export type RoleSource = "garmin" | "deduit" | "manuel" | "aucun";
 
+/** Écart d'allure (efforts sur récups) en dessous duquel la déduction est jugée fragile ; la détection, elle, accepte dès 1,12. */
+export const WEAK_GAP = 1.25;
+
 /**
- * Le rôle de chaque tour de la liste d'origine, et d'où il vient : la montre (séance structurée), la déduction par les allures
- * (tours pressés à la main), le choix de l'utilisateur. Sert à demander une vérification quand les tours sont déduits.
+ * Le rôle de chaque tour de la liste d'origine, d'où il vient (la montre, la déduction par les allures, le choix de l'utilisateur),
+ * et les doutes éventuels de la déduction : de quoi demander une vérification seulement quand elle sert.
  */
-export function describeLaps(laps: Lap[], overrides?: RoleOverrides): { roles: LapRole[]; source: RoleSource; analysis: IntervalAnalysis | null } {
-  const analysis = analyze(laps, new Map(), overrides);
+export function describeLaps(laps: Lap[], overrides?: RoleOverrides): { roles: LapRole[]; source: RoleSource; analysis: IntervalAnalysis | null; doubts: string[] } {
+  const diag: Diag = { gap: Infinity, fallback: false, trimmed: false };
+  const analysis = analyzeWith(laps, new Map(), overrides, diag);
   const forced = overrides !== undefined && overrides.some((o) => o !== null);
   const roles: LapRole[] = laps.map(() => "OTHER");
   if (analysis) {
@@ -567,5 +579,11 @@ export function describeLaps(laps: Lap[], overrides?: RoleOverrides): { roles: L
     });
   }
   const source: RoleSource = !analysis ? "aucun" : forced ? "manuel" : analysis.structured ? "garmin" : "deduit";
-  return { roles, source, analysis };
+  const doubts: string[] = [];
+  if (source === "deduit") {
+    if (diag.gap < WEAK_GAP) doubts.push("Écart d'allure faible entre efforts et récups");
+    if (diag.fallback) doubts.push("Efforts et récups mal alternés");
+    if (diag.trimmed) doubts.push("Tours écartés avant un long tour lent");
+  }
+  return { roles, source, analysis, doubts };
 }

@@ -50,3 +50,33 @@ describe("rôles des tours corrigés à la main", () => {
     expect(d.analysis?.title).toContain("9 × 800");
   });
 });
+
+describe("doutes sur les tours déduits", () => {
+  it("aucun doute quand la montre a donné les rôles", () => {
+    const struct = cas.find((c) => c.mode === "struct") as Cas;
+    const d = describeLaps(struct.laps);
+    expect(d.source).toBe("garmin");
+    expect(d.doubts).toEqual([]);
+  });
+
+  it("un doute précis quand l'écart d'allure est faible, et le résultat de la détection ne change pas", () => {
+    // Efforts à 3,40 m/s, récups à 3,10 m/s : écart de 1,10 avant seuil… on le fabrique juste au-dessus de 1,12 (détecté) mais sous 1,25 (fragile)
+    const laps: Lap[] = Array.from({ length: 11 }, (_, i) => ({ distance: i % 2 === 0 ? 1000 : 300, duration: i % 2 === 0 ? 1000 / 3.6 : 300 / 3.0, averageSpeed: i % 2 === 0 ? 3.6 : 3.0, averageHr: 160, maxHr: 170, elevationGain: 0, intensityType: null, stepIndex: null }));
+    const d = describeLaps(laps);
+    expect(d.source).toBe("deduit");
+    expect(d.doubts).toContain("Écart d'allure faible entre efforts et récups");
+    expect(d.analysis?.title).toBe(analyze(laps)?.title);
+  });
+
+  it("pas de doute pour une séance franchement marquée", () => {
+    const d = describeLaps(manuel.laps);
+    expect(d.source).toBe("deduit");
+    expect(d.doubts).toEqual([]);
+  });
+
+  it("une correction manuelle supprime les doutes", () => {
+    const o: (LapRole | null)[] = manuel.laps.map(() => null);
+    o[0] = "OTHER";
+    expect(describeLaps(manuel.laps, o).doubts).toEqual([]);
+  });
+});

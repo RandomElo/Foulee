@@ -45,6 +45,8 @@ const MIGRATIONS: &[&str] = &[
         form INTEGER, legs INTEGER, motivation INTEGER, pain INTEGER, note TEXT,
         answered_at TEXT NOT NULL
      );",
+    // 3 : effort perçu (RPE, 1 à 10)
+    "ALTER TABLE feelings ADD COLUMN rpe INTEGER CHECK (rpe BETWEEN 1 AND 10);",
 ];
 
 /// Ouvre (ou crée) la base chiffrée avec une clé de 32 octets en hexadécimale, puis joue les migrations.
@@ -218,6 +220,17 @@ mod tests {
         let r = selectionner(&c, "SELECT valeur FROM reglages WHERE cle = 'garde'", &[]).unwrap();
         assert_eq!(r[0]["valeur"], Json::from("oui"), "les données existantes doivent survivre à la migration");
         assert!(selectionner(&c, "SELECT count(*) AS n FROM feelings", &[]).is_ok());
+        let _ = fs::remove_file(&p);
+    }
+
+    #[test]
+    fn le_rpe_doit_etre_entre_1_et_10() {
+        let p = chemin("g");
+        let c = ouvrir(&p, CLE_A).unwrap();
+        executer(&c, "INSERT INTO activities (source, external_id, start_local, type) VALUES ('demo', '1', '2026-11-01 08:00:00', 'running')", &[]).unwrap();
+        assert!(executer(&c, "INSERT INTO feelings (activity_id, rpe, answered_at) VALUES (1, 11, 'x')", &[]).is_err());
+        assert!(executer(&c, "INSERT INTO feelings (activity_id, rpe, answered_at) VALUES (1, 0, 'x')", &[]).is_err());
+        assert!(executer(&c, "INSERT INTO feelings (activity_id, rpe, answered_at) VALUES (1, 7, 'x')", &[]).is_ok());
         let _ = fs::remove_file(&p);
     }
 

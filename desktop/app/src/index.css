@@ -1,4 +1,84 @@
 @import "tailwindcss";
 
-:root { color-scheme: light; }
-body { background: #fff8e1; color: #111; font-family: system-ui, sans-serif; margin: 0; }
+/* Les couleurs viennent des thèmes (src/theme/themes.ts) : jamais de couleur en dur dans un composant. */
+@theme inline {
+  --color-page: var(--c-page);
+  --color-card: var(--c-card);
+  --color-line: var(--c-line);
+  --color-ink: var(--c-ink);
+  --color-muted: var(--c-muted);
+  --color-accent: var(--c-accent);
+  --color-good: var(--c-good);
+  --color-warn: var(--c-warn);
+  --color-bad: var(--c-bad);
+  --color-violet: var(--c-violet);
+  --color-track: var(--c-track);
+  --color-yellow: var(--c-yellow);
+  --color-pink: var(--c-pink);
+  --color-sky: var(--c-sky);
+  --color-mint: var(--c-mint);
+  --color-orange: var(--c-orange);
+  --color-lilac: var(--c-lilac);
+  --color-fill-ink: var(--c-fill-ink);
+  --color-band: var(--c-band);
+  --color-on-band: var(--c-on-band);
+}
+
+:root {
+  /* Valeurs avant que le thème soit appliqué (premier affichage) : le style Néo clair. */
+  --c-page: #FBF6E9; --c-card: #FFFFFF; --c-line: #2A2A2A; --c-ink: #222222; --c-muted: #5A5A5A; --c-accent: #2F5BD1;
+  --c-good: #1F7A3E; --c-warn: #A35A10; --c-bad: #B02A44; --c-violet: #5B46C8; --c-track: #F1E8CC;
+  --c-yellow: #F7D774; --c-pink: #F5A9C0; --c-sky: #9ADAF2; --c-mint: #ABE5AB; --c-orange: #F3B672; --c-lilac: #C9B9F2; --c-fill-ink: #222222;
+  --c-band: #F7D774; --c-on-band: #222222; --c-shadow: #2A2A2A; --outline: 2.5px; --offset: 3.5px; --radius: 14px;
+  --stat-blue-bg: #9ADAF2; --stat-violet-bg: #C9B9F2; --stat-green-bg: #ABE5AB; --stat-yellow-bg: #F7D774;
+  --stat-ink: #222222; --stat-muted: #3C3C3C; --stat-blue-num: #222222; --stat-violet-num: #222222; --stat-green-num: #222222;
+  --bar: #9ADAF2; --bar-cur: #F7D774; --cat-interval: #F5A9C0; --cat-long: #9ADAF2; --cat-easy: #ABE5AB; --cat-competition: #F7D774; --cat-threshold: #F3B672; --cat-other: #C9B9F2;
+}
+
+@layer base {
+html, body, #root { height: 100%; }
+body { margin: 0; background: var(--c-page); color: var(--c-ink); font-family: system-ui, "Segoe UI", Roboto, sans-serif; line-height: 1.4; }
+button { font: inherit; color: inherit; cursor: pointer; }
+
+/* Contour de focus bien visible, bleu, dans tous les thèmes (navigation au clavier). */
+:focus-visible { outline: 3px solid #1D6BFF; outline-offset: 2px; }
+}
+
+@layer components {
+/* Composants : trait, ombre pleine et rayon viennent des variables du thème (Néo : épais et décalé, Foulée : fin et plat). */
+.card { background: var(--c-card); color: var(--c-ink); border: var(--outline) solid var(--c-line); border-radius: var(--radius); box-shadow: var(--offset) var(--offset) 0 var(--c-shadow); padding: 16px; min-width: 0; }
+.card-blue { background: var(--stat-blue-bg); }
+.card-violet { background: var(--stat-violet-bg); }
+.card-green { background: var(--stat-green-bg); }
+.card-yellow { background: var(--stat-yellow-bg); }
+.card-blue, .card-violet, .card-green, .card-yellow { color: var(--stat-ink); }
+.card-blue .sub, .card-violet .sub, .card-green .sub { color: var(--stat-muted); }
+.sub { color: var(--c-muted); font-size: 0.875rem; }
+.title { margin: 0; font-size: 0.8125rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.3px; }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; border: var(--outline) solid var(--c-line); border-radius: calc(var(--radius) - 4px); background: var(--c-card); color: var(--c-ink); padding: 8px 14px; font-weight: 900; text-transform: uppercase; font-size: 0.875rem; box-shadow: calc(var(--offset) - 0.5px) calc(var(--offset) - 0.5px) 0 var(--c-shadow); white-space: nowrap; }
+.btn:active { transform: translate(var(--offset), var(--offset)); box-shadow: none; }
+.btn-main { background: var(--c-yellow); color: var(--c-fill-ink); }
+.btn-small { padding: 4px 10px; font-size: 0.8125rem; }
+
+.pill { display: inline-block; border: 2px solid var(--c-line); border-radius: 999px; padding: 0 10px; font-weight: 800; font-size: 0.75rem; background: var(--c-yellow); color: var(--c-fill-ink); white-space: nowrap; }
+
+.band { background: var(--c-band); color: var(--c-on-band); border-bottom: var(--outline) solid var(--c-line); }
+.tab { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 999px; font-weight: 800; font-size: 0.875rem; color: inherit; text-decoration: none; border: 2px solid transparent; }
+.tab[aria-current="page"] { background: var(--c-card); color: var(--c-ink); border-color: var(--c-line); }
+
+.zones { display: flex; gap: 4px; }
+.zones i { flex: 1; height: 12px; border: 2px solid var(--c-line); border-radius: 4px; background: var(--c-card); }
+.zones i.on { background: var(--c-good); }
+.zones i.cur { background: var(--c-yellow); outline: 3px solid var(--c-line); outline-offset: 1px; }
+
+.veil { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 20; }
+.modal { background: var(--c-card); color: var(--c-ink); border: var(--outline) solid var(--c-line); border-radius: var(--radius); box-shadow: calc(var(--offset) + 2px) calc(var(--offset) + 2px) 0 var(--c-shadow); width: min(560px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
+.modal-tall { width: min(720px, 100%); height: min(640px, calc(100vh - 32px)); }
+
+.role { display: inline-block; border: 2px solid var(--c-line); border-radius: 999px; padding: 0 10px; font-weight: 800; font-size: 0.8125rem; color: var(--c-fill-ink); }
+.role-WORK { background: var(--c-pink); } .role-RECOVERY { background: var(--c-mint); } .role-OTHER, .role-WARMUP, .role-COOLDOWN { background: var(--c-track); color: var(--c-ink); }
+
+details.card > summary { list-style: none; display: flex; justify-content: space-between; align-items: center; cursor: pointer; font-weight: 900; text-transform: uppercase; font-size: 0.875rem; }
+details.card > summary::-webkit-details-marker { display: none; }
+}

@@ -11,3 +11,4 @@ export * from "./splits";
 export * from "./insights";
 export * from "./globalload";
 export * from "./loadcompare";
+export * from "./weeks";
