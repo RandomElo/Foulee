@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Modal } from "./Modal";
 import { repo, type Feeling, type Seance } from "../repo";
 import { useData } from "../DataProvider";
-import { fmtDayLong, cap } from "../lib/format";
+import { fmtDayLong, cap, texteErreur } from "../lib/format";
+import { nolio, optionRpe } from "../nolio";
 
 const RPE_LABELS = ["", "Très facile", "Facile", "Modéré", "Un peu dur", "Dur", "Difficile", "Très difficile", "Très très dur", "Presque maximal", "Maximal"];
 
@@ -28,6 +29,7 @@ export function RessentiModal({ seance, existing, onClose }: { seance: Seance; e
   const [note, setNote] = useState(existing?.note ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [alerteNolio, setAlerteNolio] = useState<string | null>(null);
 
   const save = async () => {
     if (rpe === null) return;
@@ -35,6 +37,10 @@ export function RessentiModal({ seance, existing, onClose }: { seance: Seance; e
     try {
       await repo.saveFeeling({ activityId: seance.id, rpe, legs, pain, note: note.trim(), answeredAt: new Date().toISOString() });
       await reload();
+      if (await optionRpe.lire()) {
+        try { await nolio.envoyerRpe(seance.startLocal.slice(0, 10), seance.startLocal.slice(11, 16) || null, rpe); }
+        catch (e) { setAlerteNolio(texteErreur(e)); setSaving(false); return; }
+      }
       onClose();
     } catch (e) {
       setError(String(e));
@@ -44,7 +50,7 @@ export function RessentiModal({ seance, existing, onClose }: { seance: Seance; e
 
   return (
     <Modal title="Ressenti" subtitle={`${seance.intervalTitle ?? (seance.name || "Séance")}, ${cap(fmtDayLong(seance.startLocal))}`} onClose={onClose}
-      footer={<><button className="btn" onClick={onClose}>Plus tard</button><button className="btn btn-main disabled:opacity-50" disabled={rpe === null || saving} onClick={save}>{saving ? "Enregistrement…" : "Enregistrer"}</button></>}>
+      footer={<><button className="btn" onClick={onClose}>Plus tard</button><button className="btn btn-main disabled:opacity-50" disabled={rpe === null || saving} onClick={save}>{saving ? "Enregistrement et envoi…" : alerteNolio ? "Réessayer l'envoi" : "Enregistrer"}</button></>}>
       <div className="mt-2">
         <b className="mb-1.5 block text-[13px] font-black uppercase">Effort perçu (RPE)</b>
         <div className="grid grid-cols-10 gap-1" role="group" aria-label="Effort perçu de 1 à 10">
@@ -62,6 +68,7 @@ export function RessentiModal({ seance, existing, onClose }: { seance: Seance; e
         <textarea id="note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Optionnel" rows={3}
           className="min-h-16 w-full resize-y rounded-[10px] border-[length:var(--outline)] border-line bg-card p-2 text-ink" />
       </div>
+      {alerteNolio ? <p role="alert" className="mt-3 font-bold text-bad">Ressenti enregistré ici, mais pas envoyé à Nolio : {alerteNolio}</p> : null}
       {error ? <p role="alert" className="mt-3 font-bold text-bad">Enregistrement impossible : {error}</p> : null}
     </Modal>
   );

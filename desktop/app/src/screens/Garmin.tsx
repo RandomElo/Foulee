@@ -12,7 +12,7 @@ const champ = "w-full rounded-[10px] border-[length:var(--outline)] border-line 
  * seul un jeton de session est rangé dans le trousseau de ton système. Lecture seule : activités, tours de la montre, sommeil, FC de repos, VFC et prénom.
  * La première lecture est complète (quelques minutes) ; ensuite seules les 20 dernières activités et les jours manquants sont relus.
  */
-export function Garmin({ ouvert = false }: { ouvert?: boolean } = {}) {
+export function Garmin({ ouvert = false, onConnecte }: { ouvert?: boolean; onConnecte?: (c: boolean) => void } = {}) {
   const { reload } = useData();
   const [etat, setEtat] = useState<EtatGarmin | null>(null);
   const [connecte, setConnecte] = useState<boolean | null>(null);
@@ -28,6 +28,7 @@ export function Garmin({ ouvert = false }: { ouvert?: boolean } = {}) {
     garmin.connecte().then(setConnecte).catch(() => setConnecte(false));
   }, []);
   useEffect(charger, [charger]);
+  useEffect(() => { if (connecte !== null) onConnecte?.(connecte); }, [connecte, onConnecte]);
 
   const lire = async (complet: boolean) => {
     setOccupe("lecture"); setMessage(null); setProgres({ etape: "Démarrage", fait: 0, total: 0 });

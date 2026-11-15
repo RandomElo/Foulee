@@ -46,7 +46,7 @@ export function Strava() {
 
   const pct = progres && progres.pages > 0 ? Math.min(100, Math.round((progres.page / progres.pages) * 100)) : 0;
   const premiere = (etat?.total ?? 0) === 0;
-  const etatTexte = occupe === "connexion" ? (attente ?? "Connexion à Strava… un code va t'arriver par e-mail, saisis-le ici.")
+  const etatTexte = occupe === "connexion" ? (attente ?? "Connexion à Strava… une fenêtre s'ouvre pour que tu voies ; un code va t'arriver par e-mail.")
     : etat === null ? "Recherche…" : etat.total === 0 ? "Rien de lu pour l'instant" : `${etat.total} activités, lues le ${etat.dernier ? jour(etat.dernier) : "–"}`;
   return (
     <>

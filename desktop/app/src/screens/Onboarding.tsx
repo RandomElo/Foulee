@@ -28,6 +28,7 @@ export function Onboarding() {
   const [refs, setRefs] = useState<References>(REFERENCES_VIDES);
   const [prevenu, setPrevenu] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
+  const [garminConnecte, setGarminConnecte] = useState(false);
 
   const manque = manquantes(refs);
   const faux = Object.keys(verifier(refs)).length > 0;
@@ -83,11 +84,11 @@ export function Onboarding() {
           <>
             <h2 className="title text-2xl" id="h-onboarding">Connecte ta montre</h2>
             <p className="sub mb-3 mt-1">Ton compte Garmin Connect, le même que sur ton téléphone. La lecture démarre dès la connexion.</p>
-            <Garmin ouvert />
+            <Garmin ouvert onConnecte={setGarminConnecte} />
             {erreur ? <p role="alert" className="mb-0 mt-3 font-bold text-bad">{erreur}</p> : null}
             <div className="mt-6 flex flex-wrap justify-between gap-2">
               <button className="btn" onClick={() => aller(PAGE_REFS)}>Retour</button>
-              <button className={`btn ${connecteLu || prenom ? "btn-main" : ""}`} onClick={() => void terminer()}>{connecteLu ? "Terminer" : "Continuer sans Garmin"}</button>
+              <button className={`btn ${connecteLu || garminConnecte || prenom ? "btn-main" : ""}`} onClick={() => void terminer()}>{connecteLu ? "Terminer" : garminConnecte ? "Continuer, la lecture se poursuit" : "Continuer sans Garmin"}</button>
             </div>
           </>
         )}

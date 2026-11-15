@@ -27,13 +27,12 @@ const minutesBetween = (a: number, b: number) => Math.trunc((b - a) / 60_000);
 
 /**
  * Un échauffement et un retour au calme autour d'une séance dure n'en sont pas : ils sont absorbés.
- * Fidèle au Kotlin, qui teste la catégorie « race » (inexistante : « competition » est le nom réel), donc seules
- * les séances de fractionné absorbent aujourd'hui. À corriger des deux côtés d'un coup, voir le plan.
+ * Une séance dure est un fractionné ou une compétition (même règle côté Kotlin, Coaching.kt).
  */
 export function sessionsOfDay(runs: ActivityRow[]): number {
   const sorted = [...runs].sort((a, b) => (a.startLocal < b.startLocal ? -1 : a.startLocal > b.startLocal ? 1 : 0));
   const absorbed = sorted.map(() => false);
-  const hard = (a: ActivityRow) => (categoryOf(a) as string) === "interval" || (categoryOf(a) as string) === "race";
+  const hard = (a: ActivityRow) => categoryOf(a) === "interval" || categoryOf(a) === "competition";
   sorted.forEach((a, i) => {
     if (!hard(a)) return;
     const takes = (j: number, gap: number) => {

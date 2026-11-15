@@ -44,10 +44,10 @@ a, img { -webkit-user-drag: none; user-drag: none; }
 body { -webkit-user-select: text; user-select: text; }
 
 /* Focus : contour bleu du thème (la couleur d'accent), seulement au clavier ; dans un champ de saisie, il remplace le trait du champ
-   (la bordure prend la couleur d'accent, épaissie vers l'intérieur : plus de double cercle aux coins arrondis). `data-input` est posé par main.tsx. */
+   (demande d'Eloi : aucune bordure de focus sur les champs de saisie, le curseur suffit). `data-input` est posé par main.tsx. */
 :focus-visible { outline: none; }
 html[data-input="keyboard"] :focus-visible { outline: 3px solid var(--c-accent); outline-offset: 2px; }
-input:focus-visible, textarea:focus-visible, html[data-input="keyboard"] input:focus-visible, html[data-input="keyboard"] textarea:focus-visible { outline: none; border-color: var(--c-accent); box-shadow: inset 0 0 0 1.5px var(--c-accent); }
+input:focus-visible, textarea:focus-visible, html[data-input="keyboard"] input:focus-visible, html[data-input="keyboard"] textarea:focus-visible { outline: none; box-shadow: none; }
 }
 
 @layer components {

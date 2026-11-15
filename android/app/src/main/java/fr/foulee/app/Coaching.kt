@@ -125,7 +125,7 @@ object SessionCount {
     fun ofDay(runs: List<ActivityRow>): Int {
         val sorted = runs.sortedBy { it.startLocal }
         val absorbed = BooleanArray(sorted.size)
-        fun hard(a: ActivityRow) = a.category == "interval" || a.category == "race"
+        fun hard(a: ActivityRow) = a.category == "interval" || a.category == "competition"
         sorted.forEachIndexed { i, a ->
             if (!hard(a)) return@forEachIndexed
             fun takes(j: Int, gapMinutes: Long) {
@@ -197,7 +197,7 @@ object RecoveryCheck {
         if (r.score >= LIMIT) return null
         val found = r.factors.filter { it.status == "low" }.sortedBy { it.z }.mapNotNull { cause(it) }.toMutableList()
         // The session of the last two days is a cause in itself
-        val hard = activities.filter { it.isRun && (it.category == "interval" || it.category == "race") && it.startLocal.take(10) >= today.minusDays(2).toString() }
+        val hard = activities.filter { it.isRun && (it.category == "interval" || it.category == "competition") && it.startLocal.take(10) >= today.minusDays(2).toString() }
         if (hard.isNotEmpty()) found += "Séance dure récente : ${hard.maxByOrNull { it.startLocal }?.intervalTitle?.let { withoutRecoveries(it) } ?: "course"}" to "Laisse 48 h entre deux séances dures."
         if (found.isEmpty()) found += "Pas de cause nette dans tes données" to "Une récupération moyenne se règle souvent avec un jour facile."
         return RecoveryAlert(r.score, r.label, found.map { it.first }, found.map { it.second }.distinct() + "Aujourd'hui : repos ou footing très facile.")

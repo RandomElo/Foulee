@@ -172,7 +172,7 @@ const SCRIPT_ETAT: &str = r#"(() => {
   const champs = [...document.querySelectorAll('input')].filter(vis);
   const texte = (e) => (e.innerText || e.value || '').trim();
   const boutons = [...document.querySelectorAll('button, input[type=submit], a[role=button]')].filter(vis);
-  const code = champs.find((i) => /one-time-code/.test(i.autocomplete) || /code|otp/i.test(i.name + ' ' + i.id + ' ' + i.placeholder) || i.inputMode === 'numeric');
+  const code = champs.find((i) => i.type !== 'email' && i.type !== 'password' && (/one-time-code/.test(i.autocomplete) || /code|otp/i.test(i.name + ' ' + i.id + ' ' + i.placeholder) || i.inputMode === 'numeric' || i.type === 'number' || i.pattern === '\\d*' || i.maxLength === 6));
   const recevoir = boutons.find((b) => /recevoir.*code|envoyer.*code|receive.*code|send.*code|get.*code/i.test(texte(b)));
   const erreur = [...document.querySelectorAll('[role=alert], .alert-message, .error')].find((e) => vis(e) && texte(e).length > 0);
   const apercu = 'boutons : ' + boutons.map((b) => texte(b).slice(0, 30)).filter(Boolean).join(' | ') + ' ; champs : ' + champs.map((i) => (i.type + ':' + (i.name || i.id))).join(', ');
@@ -197,11 +197,24 @@ const valider = (champ) => {
 };"#;
 
 fn script_champ(selecteur_js: &str, valeur: &str) -> String {
-    format!("(() => {{ {REMPLIR}\n const c = {selecteur_js}; if (!c) return false; memoriser(); remplir(c, {}); valider(c); return true; }})()", serde_json::to_string(valeur).unwrap_or_default())
+    script_champ_option(selecteur_js, valeur, true)
 }
 
+/// `valider` faux : on remplit seulement (le bouton de Strava reste grisé un instant après la saisie du code ; on clique ensuite avec `CLIC_VALIDER`).
+fn script_champ_option(selecteur_js: &str, valeur: &str, valider: bool) -> String {
+    let fin = if valider { "valider(c); " } else { "" };
+    format!("(() => {{ {REMPLIR}\n const c = {selecteur_js}; if (!c) return false; memoriser(); remplir(c, {}); {fin}return true; }})()", serde_json::to_string(valeur).unwrap_or_default())
+}
+
+/// Clique le bouton de validation du formulaire du code, une fois qu'il n'est plus grisé ; rend vrai si le clic a eu lieu.
+const CLIC_VALIDER: &str = r#"(() => { const vis = (e) => !!(e.offsetParent || e.getClientRects().length);
+  const c = [...document.querySelectorAll('input')].filter(vis).find((i) => i.type === 'number' || i.maxLength === 6 || /one-time-code/.test(i.autocomplete));
+  const f = (c && c.form) || document;
+  const b = [...f.querySelectorAll('button[type=submit], input[type=submit]')].filter(vis).find((b) => !b.disabled);
+  if (!b) return false; b.click(); return true; })()"#;
+
 const CHAMP_EMAIL: &str = "[...document.querySelectorAll('input[type=email]')].find(vis)";
-const CHAMP_CODE: &str = "[...document.querySelectorAll('input')].filter(vis).find((i) => /one-time-code/.test(i.autocomplete) || /code|otp/i.test(i.name + ' ' + i.id + ' ' + i.placeholder) || i.inputMode === 'numeric')";
+const CHAMP_CODE: &str = r#"[...document.querySelectorAll('input')].filter(vis).find((i) => i.type !== 'email' && i.type !== 'password' && (/one-time-code/.test(i.autocomplete) || /code|otp/i.test(i.name + ' ' + i.id + ' ' + i.placeholder) || i.inputMode === 'numeric' || i.type === 'number' || i.pattern === '\\d*' || i.maxLength === 6))"#;
 const CLIC_RECEVOIR: &str = r#"(() => { const vis = (e) => !!(e.offsetParent || e.getClientRects().length);
   const b = [...document.querySelectorAll('button, input[type=submit], a[role=button]')].filter(vis).find((b) => /recevoir.*code|envoyer.*code|receive.*code|send.*code|get.*code/i.test((b.innerText || b.value || '').trim()));
   if (!b) return false; b.click(); return true; })()"#;
@@ -240,8 +253,8 @@ pub(crate) fn attendre<T>(annule: &AtomicBool, delai: Duration, mut essai: impl 
 }
 
 /// Ouvre Strava sans fenêtre, saisit l'e-mail puis demande le code à usage unique. Rend la connexion en attente du code, ou `Connecte` si la session du profil est déjà valide.
-pub fn demarrer_connexion(exe: &Path, profil: &Path, origine: &str, email: &str, annule: &AtomicBool, delai: Duration) -> Result<(Option<Connexion>, Etape), String> {
-    let mut s = crate::navigateur::lancer(exe, profil, false, &format!("{origine}/login"))?;
+pub fn demarrer_connexion(exe: &Path, profil: &Path, origine: &str, email: &str, visible: bool, annule: &AtomicBool, delai: Duration) -> Result<(Option<Connexion>, Etape), String> {
+    let mut s = crate::navigateur::lancer(exe, profil, visible, &format!("{origine}/login"))?;
     let resultat = (|| -> Result<Etape, String> {
         // 1. La page de connexion est prête (ou la session est déjà valide : Strava a redirigé).
         let arrivee = attendre(annule, delai, || {
@@ -301,6 +314,10 @@ pub fn demarrer_connexion(exe: &Path, profil: &Path, origine: &str, email: &str,
             Ok((None, Etape::Connecte))
         }
         Err(e) => {
+            // Fenêtre visible (diagnostic) : on la laisse ouverte un moment pour qu'on voie ce que Strava affiche.
+            if visible {
+                std::thread::sleep(Duration::from_secs(25));
+            }
             s.fermer();
             Err(e)
         }
@@ -310,8 +327,12 @@ pub fn demarrer_connexion(exe: &Path, profil: &Path, origine: &str, email: &str,
 /// Saisit le code reçu par e-mail et attend que Strava ouvre la session. En cas d'échec la connexion reste en attente : on peut ressaisir un code.
 pub fn envoyer_code(c: &mut Connexion, code: &str, annule: &AtomicBool, delai: Duration) -> Result<(), String> {
     let origine = c.origine.clone();
-    if c.s.evaluer_sur_page(&origine, &script_champ(CHAMP_CODE, code.trim()))? != Some(serde_json::json!(true)) {
+    if c.s.evaluer_sur_page(&origine, &script_champ_option(CHAMP_CODE, code.trim(), false))? != Some(serde_json::json!(true)) {
         return Err("champ du code introuvable : recommence la connexion".into());
+    }
+    let clique = attendre(annule, Duration::from_secs(8), || matches!(c.s.evaluer_sur_page(&origine, CLIC_VALIDER), Ok(Some(v)) if v == serde_json::json!(true)).then_some(()))?;
+    if clique.is_none() {
+        return Err("le bouton de validation du code est resté grisé : vérifie que le code a 6 chiffres".into());
     }
     let mut erreur_vue: Option<String> = None;
     let r = attendre(annule, delai, || {
@@ -577,7 +598,7 @@ f.onsubmit=(e)=>{e.preventDefault();
   if(!f.email.value.includes('@')){return}
   if(document.getElementById('recevoir')){return}
   f.innerHTML='<button type=button id=recevoir>Recevoir un code</button>';
-  document.getElementById('recevoir').onclick=()=>{ f.innerHTML='<input name=otp autocomplete=one-time-code><button type=submit>Valider</button>'; f.onsubmit=(e)=>{e.preventDefault(); if(f.otp.value==='123456'){document.cookie='sid=ok; path=/; max-age=86400'; location='/athlete/training'} else {f.insertAdjacentHTML('beforeend','<p role=alert>Code invalide</p>')}} };
+  document.getElementById('recevoir').onclick=()=>{ f.innerHTML='<input type=number maxlength=6 pattern="\\d*"><button type=button id=nouveau>Recevoir un nouveau code</button><button type=submit id=ok disabled>Suivant</button>'; f.querySelector('input').oninput=(ev)=>{f.querySelector('#ok').disabled=ev.target.value.length!==6}; f.onsubmit=(e)=>{e.preventDefault(); if(f.querySelector('input').value==='123456'){document.cookie='sid=ok; path=/; max-age=86400'; location='/athlete/training'} else {f.insertAdjacentHTML('beforeend','<p role=alert>Code invalide</p>')}} };
 };
 </script></body></html>"#
                     };
@@ -605,7 +626,7 @@ f.onsubmit=(e)=>{e.preventDefault();
         let origine = faux_strava_connexion(false);
         let profil = dossier_test("connexion-code");
         let annule = AtomicBool::new(false);
-        let (c, etape) = demarrer_connexion(&exe, &profil, &origine, "moi@exemple.test", &annule, Duration::from_secs(30)).unwrap();
+        let (c, etape) = demarrer_connexion(&exe, &profil, &origine, "moi@exemple.test", false, &annule, Duration::from_secs(30)).unwrap();
         assert_eq!(etape, Etape::CodeRequis);
         let mut c = c.expect("connexion en attente");
         // Un mauvais code est refusé et laisse la possibilité d'en saisir un autre.
@@ -614,7 +635,7 @@ f.onsubmit=(e)=>{e.preventDefault();
         envoyer_code(&mut c, "123456", &annule, Duration::from_secs(30)).unwrap();
         c.fermer();
         // Le profil a gardé la session : une nouvelle connexion répond tout de suite « déjà connecté ».
-        let (c2, etape2) = demarrer_connexion(&exe, &profil, &origine, "moi@exemple.test", &annule, Duration::from_secs(30)).unwrap();
+        let (c2, etape2) = demarrer_connexion(&exe, &profil, &origine, "moi@exemple.test", false, &annule, Duration::from_secs(30)).unwrap();
         assert_eq!(etape2, Etape::Connecte);
         assert!(c2.is_none());
         let _ = std::fs::remove_dir_all(&profil);
@@ -626,7 +647,7 @@ f.onsubmit=(e)=>{e.preventDefault();
         let origine = faux_strava_connexion(true);
         let profil = dossier_test("connexion-mdp");
         let annule = AtomicBool::new(false);
-        let e = demarrer_connexion(&exe, &profil, &origine, "moi@exemple.test", &annule, Duration::from_secs(30)).err().expect("erreur attendue");
+        let e = demarrer_connexion(&exe, &profil, &origine, "moi@exemple.test", false, &annule, Duration::from_secs(30)).err().expect("erreur attendue");
         assert!(e.contains("mot de passe"), "{e}");
         let _ = std::fs::remove_dir_all(&profil);
     }

@@ -232,6 +232,20 @@ async fn nolio_connecter(app: AppHandle, email: String, mot_de_passe: String) ->
 }
 
 /// Lit le calendrier Nolio (35 jours passés, 200 à venir ; commentaires et structures jusqu'à 21 jours à venir) sans fenêtre.
+/// Écrit le RPE d'une séance sur Nolio (option de l'utilisateur). La séance Nolio est retrouvée par sa date et son heure de départ.
+#[tauri::command]
+async fn nolio_envoyer_rpe(app: AppHandle, date: String, heure: Option<String>, rpe: i64) -> Result<(), String> {
+    let (exe, profil) = (navigateur_choisi(&app)?, profil_nolio(&app)?);
+    let a = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let id = nolio::choisir_seance(&*verrou(a.state::<Base>().inner())?, &date, heure.as_deref())?;
+        let _occupe = OccupeNavigateur::attendre(&a, "Nolio")?;
+        nolio::ecrire_rpe(&exe, &profil, nolio::ORIGINE, id, rpe)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn nolio_synchroniser(app: AppHandle) -> Result<nolio::Bilan, String> {
     let (exe, profil) = (navigateur_choisi(&app)?, profil_nolio(&app)?);
@@ -279,7 +293,7 @@ async fn strava_connecter(app: AppHandle, email: String) -> Result<String, Strin
     let (exe, profil) = (navigateur_choisi(&app)?, profil_strava(&app)?);
     tauri::async_runtime::spawn_blocking(move || {
         let occupe = OccupeNavigateur::attendre(&app, "Strava")?;
-        let (connexion, etape) = strava::demarrer_connexion(&exe, &profil, strava::ORIGINE, email.trim(), &NAV_ANNULER, std::time::Duration::from_secs(60))?;
+        let (connexion, etape) = strava::demarrer_connexion(&exe, &profil, strava::ORIGINE, email.trim(), true, &NAV_ANNULER, std::time::Duration::from_secs(60))?;
         match (connexion, etape) {
             (Some(c), strava::Etape::CodeRequis) => {
                 *STRAVA_EN_ATTENTE.lock().map_err(|_| "état de connexion verrouillé".to_string())? = Some((c, occupe));
@@ -527,7 +541,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos, secret_definir, secret_existe, secret_supprimer, navigateur_etat, navigateur_telecharger, navigateur_annuler, navigateur_tester, nolio_connecter, nolio_synchroniser, nolio_annuler, strava_connecter, strava_code, strava_abandonner, strava_synchroniser, garmin_connecter, garmin_code, garmin_connecte, garmin_deconnecter, garmin_synchroniser, garmin_annuler, maj_en_attente, maj_relancer])
+        .invoke_handler(tauri::generate_handler![db_select, db_execute, db_batch, db_infos, secret_definir, secret_existe, secret_supprimer, navigateur_etat, navigateur_telecharger, navigateur_annuler, navigateur_tester, nolio_connecter, nolio_synchroniser, nolio_envoyer_rpe, nolio_annuler, strava_connecter, strava_code, strava_abandonner, strava_synchroniser, garmin_connecter, garmin_code, garmin_connecte, garmin_deconnecter, garmin_synchroniser, garmin_annuler, maj_en_attente, maj_relancer])
         .run(tauri::generate_context!())
         .expect("erreur au lancement de Foulée");
 }

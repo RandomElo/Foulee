@@ -386,6 +386,90 @@ fn connecter_dans(s: &mut Session, origine: &str, email: &str, mot_de_passe: &st
 
 /// Vrai si la page du calendrier est ouverte ET que la session répond. Se fait dans la page de l'utilisateur, sans ouvrir d'onglet :
 /// un second onglet lui redemanderait ses identifiants pendant qu'il se connecte.
+// ---------- Écriture du RPE (option) ----------
+
+/// Renvoie à Nolio le formulaire de la séance réalisée avec le seul `t-rpe` changé, comme le fait la carte « Feeling » du site (observé le 2026-11-15,
+/// voir docs/notes/nolio-points-d-acces.md). Le formulaire est relu après l'envoi : on ne dit « fait » que si Nolio affiche bien la nouvelle valeur.
+const SCRIPT_RPE: &str = r#"(async () => {
+  const H = { "X-Requested-With": "XMLHttpRequest", Accept: "application/json" };
+  const url = "/event/update/Training/__ID__/";
+  const lire = async () => {
+    const r = await fetch(url, { headers: H, redirect: "manual" });
+    if (r.type === "opaqueredirect") return null;
+    if (!r.ok) throw new Error(`formulaire : HTTP ${r.status}`);
+    const doc = new DOMParser().parseFromString((await r.json()).template || "", "text/html");
+    const f = doc.querySelector("form");
+    if (!f) throw new Error("formulaire introuvable");
+    return f;
+  };
+  const f = await lire();
+  if (!f) return { connecte: false, rpe: null };
+  const champ = f.querySelector('[name="t-rpe"]');
+  if (!champ) throw new Error("champ RPE introuvable");
+  champ.value = "__RPE__";
+  const donnees = new URLSearchParams();
+  for (const [k, v] of new FormData(f)) donnees.append(k, String(v));
+  // Comme le site : la date de début porte l'heure.
+  const date = donnees.get("t-date_start") || "";
+  const heure = (donnees.get("t-hour_start") || "").slice(0, 5);
+  if (date.length === 10 && heure) donnees.set("t-date_start", `${date} ${heure}`);
+  const cookie = (document.cookie.split("; ").find((c) => c.startsWith("csrftoken=")) || "").slice(10);
+  const jeton = cookie || donnees.get("csrfmiddlewaretoken") || "";
+  const r = await fetch(url, { method: "POST", headers: { ...H, "X-CSRFToken": jeton, "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" }, body: donnees.toString() });
+  if (!r.ok) throw new Error(`envoi : HTTP ${r.status}`);
+  const apres = await lire();
+  return { connecte: true, rpe: apres ? apres.querySelector('[name="t-rpe"]').value : null };
+})()"#;
+
+/// Le script d'envoi, avec l'identifiant Nolio (chiffres seulement) et le RPE (1 à 10) validés avant de les glisser dans le code.
+pub fn script_rpe(id: i64, rpe: i64) -> Result<String, String> {
+    if id <= 0 {
+        return Err("identifiant de séance Nolio invalide".into());
+    }
+    if !(1..=10).contains(&rpe) {
+        return Err("le RPE doit être entre 1 et 10".into());
+    }
+    Ok(SCRIPT_RPE.replace("__ID__", &id.to_string()).replace("__RPE__", &rpe.to_string()))
+}
+
+/// La séance réalisée de Nolio (identifiant `t-<numéro>`) qui correspond à une activité : même jour, heure la plus proche (à 2 h près), ou la seule du jour
+/// si Nolio n'en donne pas l'heure. Les compétitions (`c-`) ne s'écrivent pas par ce formulaire.
+pub fn choisir_seance(conn: &Connection, date: &str, heure: Option<&str>) -> Result<i64, String> {
+    jour_de(date)?;
+    let minutes = |h: &str| -> Option<i64> {
+        let (a, b) = h.split_once(':')?;
+        Some(a.trim().parse::<i64>().ok()? * 60 + b.get(..2).unwrap_or(b).trim().parse::<i64>().ok()?)
+    };
+    let mut r = conn.prepare("SELECT id, heure FROM nolio_evenements WHERE genre = 'reel' AND date = ?1 AND id LIKE 't-%'").map_err(|e| e.to_string())?;
+    let lignes: Vec<(String, Option<String>)> = r.query_map([date], |l| Ok((l.get(0)?, l.get(1)?))).map_err(|e| e.to_string())?.collect::<Result<_, _>>().map_err(|e| e.to_string())?;
+    let voulue = heure.and_then(minutes);
+    let numero = |id: &str| id.strip_prefix("t-").and_then(|n| n.parse::<i64>().ok());
+    let choix = match (lignes.as_slice(), voulue) {
+        ([], _) => None,
+        ([seule], None) => numero(&seule.0),
+        (plusieurs, Some(v)) => plusieurs.iter().filter_map(|(id, h)| Some((numero(id)?, (minutes(h.as_deref()?)? - v).abs()))).filter(|(_, ecart)| *ecart <= 120).min_by_key(|(_, ecart)| *ecart).map(|(n, _)| n)
+            .or_else(|| if let [(id, None)] = plusieurs { numero(id) } else { None }),
+        _ => None,
+    };
+    choix.ok_or_else(|| "Aucune séance Nolio ne correspond à cette séance : lance « Synchroniser » dans Sources".to_string())
+}
+
+/// Écrit le RPE d'une séance réalisée sur Nolio (navigateur sans fenêtre, session du profil). Erreur claire si la session a expiré ou si Nolio n'a pas gardé la valeur.
+pub fn ecrire_rpe(exe: &Path, profil: &Path, origine: &str, id: i64, rpe: i64) -> Result<(), String> {
+    let script = script_rpe(id, rpe)?;
+    let mut s = crate::navigateur::lancer(exe, profil, false, "about:blank")?;
+    let r = s.evaluer(&format!("{origine}/calendar/"), &script);
+    s.fermer();
+    let v = r?;
+    if v["connecte"].as_bool() != Some(true) {
+        return Err("Nolio n'est plus connecté : reconnecte-toi depuis Sources".into());
+    }
+    if v["rpe"].as_str() != Some(&rpe.to_string()) {
+        return Err(format!("Nolio n'a pas gardé le RPE (il affiche {})", v["rpe"].as_str().unwrap_or("rien")));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 pub fn verifier_connexion(s: &mut Session, origine: &str) -> bool {
     let Ok(script) = script_fenetre("2026-01-05", "2026-01-05", "2000-01-01") else { return false };
@@ -579,6 +663,27 @@ mod tests {
         assert_eq!(enregistrer(&c, &[evenement("t-2", "Footing facile")], "2026-11-14T12:00").unwrap(), (0, 1));
         let n: i64 = c.query_row("SELECT count(*) FROM nolio_evenements", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 2);
+    }
+
+    #[test]
+    fn la_seance_nolio_est_choisie_par_jour_et_heure_les_competitions_et_les_autres_jours_sont_ignores() {
+        let c = base_memoire();
+        let mut a = evenement("t-11", "Matin");
+        a.genre = "reel";
+        a.heure = Some("08:09".into());
+        let mut b = evenement("t-12", "Soir");
+        b.genre = "reel";
+        b.heure = Some("18:30".into());
+        let mut comp = evenement("c-13", "Course");
+        comp.genre = "reel";
+        comp.heure = Some("08:10".into());
+        enregistrer(&c, &[a, b, comp], "2026-11-14T10:00").unwrap();
+        assert_eq!(choisir_seance(&c, "2026-11-03", Some("08:15")).unwrap(), 11);
+        assert_eq!(choisir_seance(&c, "2026-11-03", Some("18:00")).unwrap(), 12);
+        assert!(choisir_seance(&c, "2026-11-03", Some("13:00")).is_err(), "à plus de 2 h de toutes les séances");
+        assert!(choisir_seance(&c, "2026-11-03", None).is_err(), "deux séances sans heure : on ne devine pas");
+        assert!(choisir_seance(&c, "2026-11-04", Some("08:09")).is_err(), "autre jour");
+        assert!(choisir_seance(&c, "pas une date", None).is_err());
     }
 
     #[test]
@@ -792,6 +897,98 @@ mod tests {
         assert_eq!((bilan2.nouveaux, bilan2.modifies), (0, 0));
         let n: i64 = base.query_row("SELECT count(*) FROM nolio_evenements", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 6);
+        let _ = std::fs::remove_dir_all(&dossier);
+    }
+
+    #[test]
+    fn le_script_rpe_refuse_un_rpe_ou_un_identifiant_hors_limites() {
+        assert!(script_rpe(116532756, 0).is_err());
+        assert!(script_rpe(116532756, 11).is_err());
+        assert!(script_rpe(0, 5).is_err());
+        assert!(script_rpe(-3, 5).is_err());
+        let s = script_rpe(116532756, 7).unwrap();
+        assert!(s.contains("/event/update/Training/116532756/") && s.contains("\"7\""));
+    }
+
+    /// Faux Nolio qui garde l'état d'une séance : le formulaire montre le RPE courant, le POST le change et garde le corps reçu.
+    fn faux_nolio_ecriture(rpe_initial: i64) -> (String, std::sync::Arc<std::sync::Mutex<(i64, Vec<String>)>>) {
+        let etat = std::sync::Arc::new(std::sync::Mutex::new((rpe_initial, Vec::<String>::new())));
+        let ecoute = TcpListener::bind("127.0.0.1:0").unwrap();
+        let origine = format!("http://127.0.0.1:{}", ecoute.local_addr().unwrap().port());
+        let e = etat.clone();
+        std::thread::spawn(move || {
+            for flux in ecoute.incoming() {
+                let Ok(mut flux) = flux else { continue };
+                let e = e.clone();
+                std::thread::spawn(move || {
+                    let mut donnees = Vec::new();
+                    let mut tampon = [0u8; 4096];
+                    let (tete, corps) = loop {
+                        let n = flux.read(&mut tampon).unwrap_or(0);
+                        if n == 0 {
+                            return;
+                        }
+                        donnees.extend_from_slice(&tampon[..n]);
+                        let texte = String::from_utf8_lossy(&donnees).to_string();
+                        if let Some(i) = texte.find("\r\n\r\n") {
+                            let tete = texte[..i].to_string();
+                            let longueur = tete.lines().find_map(|l| l.to_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0))).unwrap_or(0);
+                            if texte.len() >= i + 4 + longueur {
+                                break (tete, texte[i + 4..i + 4 + longueur].to_string());
+                            }
+                        }
+                    };
+                    let mut mots = tete.split_whitespace();
+                    let (methode, chemin) = (mots.next().unwrap_or(""), mots.next().unwrap_or("/").to_string());
+                    let (statut, type_, rep) = if chemin == "/calendar/" {
+                        ("200 OK", "text/html", "<html><body>calendrier</body></html>".to_string())
+                    } else if chemin == "/event/update/Training/7/" && methode == "POST" {
+                        let a_le_jeton = tete.to_lowercase().contains("x-csrftoken: tok");
+                        let rpe = corps.split('&').find_map(|c| c.strip_prefix("t-rpe=")).and_then(|v| v.parse::<i64>().ok());
+                        match (a_le_jeton, rpe) {
+                            (true, Some(r)) => {
+                                let mut g = e.lock().unwrap();
+                                g.0 = r;
+                                g.1.push(corps);
+                                ("200 OK", "application/json", "{\"ok\":true}".to_string())
+                            }
+                            _ => ("403 Forbidden", "text/plain", "refusé".to_string()),
+                        }
+                    } else if chemin == "/event/update/Training/7/" {
+                        let rpe = e.lock().unwrap().0;
+                        let form = format!("<form method=\"post\"><input type=\"hidden\" name=\"csrfmiddlewaretoken\" value=\"tok\"><input name=\"t-name\" value=\"3x1km\"><input name=\"t-hour_start\" value=\"08:09:00\"><input name=\"t-date_start\" value=\"2026-11-13\"><input type=\"number\" name=\"t-rpe\" value=\"{rpe}\"><input type=\"radio\" name=\"t-sensation\" value=\"3\" checked><input type=\"radio\" name=\"t-sensation\" value=\"4\"><input name=\"slices-0-id\" value=\"252554267\"></form>");
+                        ("200 OK", "application/json", json!({ "template": form }).to_string())
+                    } else {
+                        ("404 Not Found", "text/plain", "inconnu".to_string())
+                    };
+                    let en_tete = format!("HTTP/1.1 {statut}\r\nContent-Type: {type_}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", rep.len());
+                    let _ = flux.write_all(en_tete.as_bytes());
+                    let _ = flux.write_all(rep.as_bytes());
+                });
+            }
+        });
+        (origine, etat)
+    }
+
+    #[test]
+    fn le_rpe_est_ecrit_sur_un_faux_nolio_sans_toucher_au_reste_du_formulaire() {
+        let Some(exe) = chromium_ou_ignorer() else { return };
+        let (origine, etat) = faux_nolio_ecriture(5);
+        let dossier = dossier_test("rpe");
+        ecrire_rpe(&exe, &dossier.join("profil"), &origine, 7, 8).unwrap();
+        let g = etat.lock().unwrap();
+        assert_eq!(g.0, 8);
+        assert_eq!(g.1.len(), 1, "un seul envoi");
+        let corps = &g.1[0];
+        for attendu in ["t-name=3x1km", "t-sensation=3", "slices-0-id=252554267", "t-date_start=2026-11-13+08%3A09", "csrfmiddlewaretoken=tok", "t-rpe=8"] {
+            assert!(corps.contains(attendu), "manque {attendu} dans {corps}");
+        }
+        assert!(!corps.contains("t-sensation=4"), "le ressenti de Nolio ne doit pas changer");
+        drop(g);
+        // Une séance inconnue donne une erreur dite, sans rien écrire.
+        let e = ecrire_rpe(&exe, &dossier.join("profil"), &origine, 8, 6).unwrap_err();
+        assert!(e.contains("HTTP 404"), "{e}");
+        assert_eq!(etat.lock().unwrap().1.len(), 1);
         let _ = std::fs::remove_dir_all(&dossier);
     }
 

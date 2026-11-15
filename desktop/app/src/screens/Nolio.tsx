@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { nolio, resumeBilan, type EtatNolio } from "../nolio";
+import { nolio, optionRpe, resumeBilan, type EtatNolio } from "../nolio";
 import { useData } from "../DataProvider";
 import { SourceLigne } from "../components/SourceLigne";
 import { texteErreur } from "../lib/format";
@@ -18,6 +18,9 @@ export function Nolio() {
   const [formulaire, setFormulaire] = useState(false);
   const [saisie, setSaisie] = useState({ email: "", motDePasse: "" });
   const [message, setMessage] = useState<{ ok: boolean; texte: string } | null>(null);
+  const [ecritRpe, setEcritRpe] = useState(false);
+  useEffect(() => { void optionRpe.lire().then(setEcritRpe); }, []);
+  const changerRpe = (actif: boolean) => { setEcritRpe(actif); void optionRpe.ecrire(actif).catch(() => setEcritRpe(!actif)); };
 
   const charger = useCallback(() => { nolio.etat().then(setEtat).catch(() => setEtat({ total: 0, dernier: null })); }, []);
   useEffect(charger, [charger]);
@@ -46,7 +49,7 @@ export function Nolio() {
     <SourceLigne
       titre="Nolio"
       optionnel
-      aide="Récupère les séances prévues par ton coach, tes objectifs et ses commentaires, pour les afficher dans l'accueil et sur chaque séance. Lecture seule : rien n'est écrit sur Nolio."
+      aide="Récupère les séances prévues par ton coach, tes objectifs et ses commentaires, pour les afficher dans l'accueil et sur chaque séance. Lecture seule, sauf l'envoi du RPE si tu l'actives plus bas."
       etat={etatTexte}
       progression={occupe === "lecture" && progres ? { pct, libelle: "Lecture de Nolio", texte: progres.total > 0 ? `Période ${progres.fait} sur ${progres.total}` : (attente ?? "Démarrage…") } : null}
       message={message}
@@ -74,6 +77,10 @@ export function Nolio() {
         </div>
       </form>
     ) : null}
+    <label className="mt-3 flex cursor-pointer items-start gap-2">
+      <input type="checkbox" className="mt-1" checked={ecritRpe} onChange={(e) => changerRpe(e.target.checked)} />
+      <span><b>Envoyer mon RPE à Nolio</b><span className="sub block">Quand tu enregistres un ressenti, l'effort perçu est écrit sur la séance Nolio du même jour. Seul le RPE est modifié.</span></span>
+    </label>
     </>
   );
 }
