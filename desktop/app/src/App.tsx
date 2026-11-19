@@ -7,6 +7,7 @@ import { Accueil } from "./screens/Accueil";
 import { Activites } from "./screens/Activites";
 import { Fiche } from "./screens/Fiche";
 import { Onboarding } from "./screens/Onboarding";
+import { Forme } from "./screens/Forme";
 import { Reglages } from "./screens/Reglages";
 
 /** Le logo de l'appli (carré arrondi, tracé en M), repris de android/.../logo_neo.xml ; les couleurs suivent le thème. */
@@ -24,10 +25,6 @@ function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => { window.scrollTo(0, 0); }, [pathname]);
   return null;
-}
-
-function Forme() {
-  return <div className="card"><h2 className="title">Forme</h2><p className="sub mb-0 mt-2">Sommeil, VFC, FC de repos et charge : écran à venir.</p></div>;
 }
 
 export default function App() {

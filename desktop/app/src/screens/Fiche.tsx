@@ -1,5 +1,5 @@
 import { Chevron } from "../components/Chevron";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { addDays, categoryLabel, categoryOf, describeLaps, groupWeeks, sportLabel, weekStart, dayOf } from "@foulee/core";
 import { useData } from "../DataProvider";
@@ -12,6 +12,9 @@ import { fmtAllure, positionSousLimite, prevuDe } from "../lib/nolio";
 import { libelleLabel, stravaDe } from "../lib/strava";
 import { doubtsOf, intervalFacts } from "../lib/stats";
 import { SeanceRow, titleOf } from "./Activites";
+import { lireReferences } from "../lib/referencesStockage";
+import { REFERENCES_VIDES, type References } from "../lib/references";
+import { texteStravaDe } from "../lib/texteStrava";
 
 export function Fiche() {
   const { id } = useParams();
@@ -19,6 +22,9 @@ export function Fiche() {
   const [ressenti, setRessenti] = useState(false);
   const [tours, setTours] = useState(false);
   const [prevuOuvert, setPrevuOuvert] = useState(false);
+  const [refs, setRefs] = useState<References>(REFERENCES_VIDES);
+  const [copie, setCopie] = useState<string | null>(null);
+  useEffect(() => { void lireReferences().then(setRefs).catch(() => undefined); }, []);
   const s = data.seances.find((x) => String(x.id) === id);
   if (loading) return <p className="sub" role="status">Chargement…</p>;
   if (!s) return <><Link className="btn btn-main" to="/activites">← Activités</Link><div className="mt-4"><Empty>Cette séance n'existe pas (ou plus).</Empty></div></>;
@@ -71,6 +77,27 @@ export function Fiche() {
     </div>
   ) : null;
 
+  const proposition = texteStravaDe(s, detail?.analysis ?? null, load, refs);
+  const copier = (cle: string, texte: string) => { void navigator.clipboard.writeText(texte).then(() => { setCopie(cle); setTimeout(() => setCopie(null), 1500); }).catch(() => undefined); };
+  const texteCard = proposition ? (
+    <details className="card">
+      <summary>Texte pour Strava<Chevron /></summary>
+      <div className="mt-2.5 grid gap-3">
+        <div>
+          <b className="block text-[13px] font-black uppercase">Titre</b>
+          <p className="my-1">{proposition.texte.name}</p>
+          <button className="btn" onClick={() => copier("titre", proposition.texte.name)}>{copie === "titre" ? "Copié" : "Copier le titre"}</button>
+        </div>
+        <div>
+          <b className="block text-[13px] font-black uppercase">Description</b>
+          <p className="my-1 whitespace-pre-line">{proposition.texte.description}</p>
+          <button className="btn" onClick={() => copier("description", proposition.texte.description)}>{copie === "description" ? "Copié" : "Copier la description"}</button>
+        </div>
+        {s.intervalTitle && proposition.specialite === null && refs.r5.trim() === "" ? <p className="sub m-0">Ajoute tes records dans Réglages pour obtenir le titre « Spé ».</p> : null}
+      </div>
+    </details>
+  ) : null;
+
   const toursCard = detail ? (
     <details className="card" open>
       <summary>Tours<span className="ml-auto mr-3"><button className="btn btn-small" onClick={(e) => { e.preventDefault(); setTours(true); }}>Corriger</button></span></summary>
@@ -108,6 +135,7 @@ export function Fiche() {
         {numbers}
         {prevuCard ? <div className="min-w-0 min-[1500px]:col-span-2">{prevuCard}</div> : null}
         {stravaCard ? <div className="min-w-0 min-[1500px]:col-span-2">{stravaCard}</div> : null}
+        {texteCard ? <div className="min-w-0 min-[1500px]:col-span-2">{texteCard}</div> : null}
         {toursCard ? <div className="min-w-0">{toursCard}</div> : null}
       </div>
 
