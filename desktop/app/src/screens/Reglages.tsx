@@ -4,7 +4,9 @@ import { REFERENCES_VIDES, verifier, type References } from "../lib/references";
 import { ecrireReferences, lireReferences } from "../lib/referencesStockage";
 import { texteErreur } from "../lib/format";
 import { Chevron } from "../components/Chevron";
+import { Link } from "react-router-dom";
 import { useData } from "../DataProvider";
+import { ProfilCoureur } from "../components/ProfilCoureur";
 import { repo } from "../repo";
 import { useTheme } from "../theme/ThemeProvider";
 import { Navigateur } from "./Navigateur";
@@ -29,6 +31,7 @@ function Group<T extends string>({ label, value, options, onPick }: { label: str
 
 /** Les références du coureur, modifiables ici ; elles s'enregistrent d'un clic. */
 function References() {
+  const { reload } = useData();
   const [refs, setRefs] = useState<References>(REFERENCES_VIDES);
   const [etat, setEtat] = useState<{ ok: boolean; texte: string } | null>(null);
   useEffect(() => { lireReferences().then(setRefs).catch(() => undefined); }, []);
@@ -40,7 +43,7 @@ function References() {
       <ChampsReferences valeur={refs} onChange={(r) => { setRefs(r); setEtat(null); }} />
       <div className="mt-4 flex flex-wrap items-center gap-2">
         <button className="btn btn-main disabled:opacity-50" disabled={faux}
-          onClick={() => ecrireReferences(refs).then(() => setEtat({ ok: true, texte: "Enregistré" })).catch((e) => setEtat({ ok: false, texte: texteErreur(e) }))}>Enregistrer</button>
+          onClick={() => ecrireReferences(refs).then(() => reload()).then(() => setEtat({ ok: true, texte: "Enregistré" })).catch((e) => setEtat({ ok: false, texte: texteErreur(e) }))}>Enregistrer</button>
         {etat ? <span role={etat.ok ? "status" : "alert"} className={`font-bold ${etat.ok ? "" : "text-bad"}`}>{etat.texte}</span> : null}
       </div>
     </section>
@@ -83,6 +86,12 @@ export function Reglages() {
       </section>
 
       <div className="grid min-w-0 grid-cols-1 gap-[18px]">
+        <ProfilCoureur />
+
+        <section className="card flex flex-wrap items-center justify-between gap-3" aria-labelledby="h-prompt">
+          <div className="min-w-0"><h2 className="title" id="h-prompt">Prompt pour une IA</h2><p className="sub m-0">Prépare un texte avec tes données anonymisées, à coller dans un chat.</p></div>
+          <Link className="btn btn-main" to="/prompt">Préparer</Link>
+        </section>
         <References />
 
         <section className="card" aria-labelledby="h-apparence">

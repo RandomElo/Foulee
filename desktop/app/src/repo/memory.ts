@@ -40,6 +40,7 @@ export function createMemoryRepo(): Repo {
       refresh();
     },
     async clearRoles(id) { roles.delete(id); refresh(); },
+    async setCategory(id, category) { seances = seances.map((s) => (s.id === id ? { ...s, manualCategory: category } : s)); },
     async saveFeeling(f) { feelings = [...feelings.filter((x) => x.activityId !== f.activityId), f]; },
     async getSetting(k) { return settings.get(k) ?? null; },
     async setSetting(k, v) { settings.set(k, v); },

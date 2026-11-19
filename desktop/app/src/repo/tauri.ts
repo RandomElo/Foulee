@@ -61,6 +61,9 @@ export const tauriRepo: Repo = {
     if (role === null) await execute("DELETE FROM lap_roles WHERE activity_id = ? AND idx = ?", [activityId, idx]);
     else await execute("INSERT INTO lap_roles (activity_id, idx, role) VALUES (?, ?, ?) ON CONFLICT (activity_id, idx) DO UPDATE SET role = excluded.role", [activityId, idx, role]);
   },
+  async setCategory(activityId, category) {
+    await execute("UPDATE activities SET manual_category = ? WHERE id = ?", [category, activityId]);
+  },
   async clearRoles(activityId) {
     await execute("DELETE FROM lap_roles WHERE activity_id = ?", [activityId]);
   },

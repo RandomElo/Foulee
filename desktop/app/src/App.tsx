@@ -8,6 +8,8 @@ import { Activites } from "./screens/Activites";
 import { Fiche } from "./screens/Fiche";
 import { Onboarding } from "./screens/Onboarding";
 import { Forme } from "./screens/Forme";
+import { AClasser } from "./screens/AClasser";
+import { Prompt } from "./screens/Prompt";
 import { Reglages } from "./screens/Reglages";
 
 /** Le logo de l'appli (carré arrondi, tracé en M), repris de android/.../logo_neo.xml ; les couleurs suivent le thème. */
@@ -59,6 +61,8 @@ export default function App() {
           <Route path="/" element={<Accueil />} />
           <Route path="/activites" element={<Activites />} />
           <Route path="/activites/:id" element={<Fiche />} />
+          <Route path="/prompt" element={<Prompt />} />
+          <Route path="/a-classer" element={<AClasser />} />
           <Route path="/forme" element={<Forme />} />
           <Route path="/reglages" element={<Reglages />} />
           <Route path="*" element={<Accueil />} />

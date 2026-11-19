@@ -1,7 +1,7 @@
 import { Chevron } from "../components/Chevron";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { addDays, categoryLabel, categoryOf, describeLaps, groupWeeks, sportLabel, weekStart, dayOf } from "@foulee/core";
+import { addDays, categoryLabel, categoryOf, describeLaps, groupWeeks, isReviewDay, recoveryLine, sessionRemark, sportLabel, weekReviewOf, weekLines, weekStart, dayOf } from "@foulee/core";
 import { useData } from "../DataProvider";
 import { PrevuModal } from "../components/PrevuModal";
 import { RessentiModal } from "../components/RessentiModal";
@@ -12,19 +12,23 @@ import { fmtAllure, positionSousLimite, prevuDe } from "../lib/nolio";
 import { libelleLabel, stravaDe } from "../lib/strava";
 import { doubtsOf, intervalFacts } from "../lib/stats";
 import { SeanceRow, titleOf } from "./Activites";
-import { lireReferences } from "../lib/referencesStockage";
-import { REFERENCES_VIDES, type References } from "../lib/references";
-import { texteStravaDe } from "../lib/texteStrava";
+import type { References } from "../lib/references";
+import { refsNumeriques, texteStravaDe } from "../lib/texteStrava";
+import { proposedSpeciality, type IntervalAnalysis } from "@foulee/core";
+
+/** La spécialité que les allures suggèrent pour ce fractionné, ou null. */
+function stravaPropose(s: { intervalTitle: string | null }, analyse: IntervalAnalysis | null, refs: References): string | null {
+  return s.intervalTitle !== null && analyse ? proposedSpeciality(analyse, refsNumeriques(refs)) : null;
+}
 
 export function Fiche() {
   const { id } = useParams();
-  const { data, analysis, loading } = useData();
+  const { data, analysis, loading, refs, historique: histo } = useData();
   const [ressenti, setRessenti] = useState(false);
   const [tours, setTours] = useState(false);
   const [prevuOuvert, setPrevuOuvert] = useState(false);
-  const [refs, setRefs] = useState<References>(REFERENCES_VIDES);
   const [copie, setCopie] = useState<string | null>(null);
-  useEffect(() => { void lireReferences().then(setRefs).catch(() => undefined); }, []);
+  const [avecSpe, setAvecSpe] = useState(false);
   const s = data.seances.find((x) => String(x.id) === id);
   if (loading) return <p className="sub" role="status">Chargement…</p>;
   if (!s) return <><Link className="btn btn-main" to="/activites">← Activités</Link><div className="mt-4"><Empty>Cette séance n'existe pas (ou plus).</Empty></div></>;
@@ -77,8 +81,31 @@ export function Fiche() {
     </div>
   ) : null;
 
-  const proposition = texteStravaDe(s, detail?.analysis ?? null, load, refs);
+  const analyseSeance = s.intervalTitle !== null ? histo.analyze(s.id, [], s.laps) : null;
+  const remarque = sessionRemark(analyseSeance);
+  const jour = dayOf(s);
+  // Le dimanche, le bilan de la semaine part au bout de la description ; une récupération faible du matin s'ajoute aussi.
+  const semaine = isReviewDay(jour) && s.type.includes("running") ? weekReviewOf(jour, data.seances, analysis, histo) : null;
+  const heure = Number(s.startLocal.slice(11, 13));
+  const forme = analysis.readinessOn(jour, heure >= 14 ? jour : addDays(jour, -1))?.score ?? null;
+  const proposition = texteStravaDe(s, detail?.analysis ?? null, { charge: load, refs, remarque, specialiteChoisie: avecSpe ? stravaPropose(s, detail?.analysis ?? null, refs) : null, semaine: semaine ? weekLines(semaine) : null, recuperation: recoveryLine(forme) });
   const copier = (cle: string, texte: string) => { void navigator.clipboard.writeText(texte).then(() => { setCopie(cle); setTimeout(() => setCopie(null), 1500); }).catch(() => undefined); };
+  const analyseCard = analyseSeance ? (
+    <details className="card">
+      <summary>Analyse de la séance<Chevron /></summary>
+      <div className="mt-2.5 grid gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="pill">{analyseSeance.verdictLabel}</span>
+          {analyseSeance.score !== null ? <b className="text-xl font-black">{fmtNum(analyseSeance.score)} / 10</b> : null}
+          <span className="sub">note de la séance</span>
+        </div>
+        {remarque ? <p className="m-0 font-bold">{remarque}</p> : null}
+        {analyseSeance.paragraphs.map((p) => <p key={p} className="m-0">{p}</p>)}
+        {analyseSeance.sampleSize < 10 ? <p className="sub m-0">Comparaison sur {analyseSeance.sampleSize} séance{analyseSeance.sampleSize > 1 ? "s" : ""} seulement : elle s'affinera avec l'historique.</p> : null}
+      </div>
+    </details>
+  ) : null;
+
   const texteCard = proposition ? (
     <details className="card">
       <summary>Texte pour Strava<Chevron /></summary>
@@ -93,7 +120,8 @@ export function Fiche() {
           <p className="my-1 whitespace-pre-line">{proposition.texte.description}</p>
           <button className="btn" onClick={() => copier("description", proposition.texte.description)}>{copie === "description" ? "Copié" : "Copier la description"}</button>
         </div>
-        {s.intervalTitle && proposition.specialite === null && refs.r5.trim() === "" ? <p className="sub m-0">Ajoute tes records dans Réglages pour obtenir le titre « Spé ».</p> : null}
+        {proposition.proposee ? <button className="btn" aria-pressed={avecSpe} onClick={() => setAvecSpe((v) => !v)}>{avecSpe ? "Retirer" : "Utiliser"} le titre « Spé {proposition.proposee} »</button> : null}
+        {s.intervalTitle && proposition.proposee === null && refs.r5.trim() === "" ? <p className="sub m-0">Ajoute tes records dans Réglages pour obtenir le titre « Spé ».</p> : null}
       </div>
     </details>
   ) : null;
@@ -135,6 +163,7 @@ export function Fiche() {
         {numbers}
         {prevuCard ? <div className="min-w-0 min-[1500px]:col-span-2">{prevuCard}</div> : null}
         {stravaCard ? <div className="min-w-0 min-[1500px]:col-span-2">{stravaCard}</div> : null}
+        {analyseCard ? <div className="min-w-0 min-[1500px]:col-span-2">{analyseCard}</div> : null}
         {texteCard ? <div className="min-w-0 min-[1500px]:col-span-2">{texteCard}</div> : null}
         {toursCard ? <div className="min-w-0">{toursCard}</div> : null}
       </div>

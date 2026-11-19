@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Trophy } from "lucide-react";
-import { dayOf, isRun, kmPerWeek, loadZoneOf, LOAD_ZONES, addDays, weekStart } from "@foulee/core";
+import { dayOf, isRun, kmPerWeek, loadZoneOf, LOAD_ZONES, addDays, weekStart, recoveryAlert, weekLines, weekReviewForHome } from "@foulee/core";
+import { Chevron } from "../components/Chevron";
 import { useData } from "../DataProvider";
 import { KmChart } from "../components/KmChart";
 import { PrevuModal } from "../components/PrevuModal";
@@ -19,7 +20,7 @@ const ZONE_COULEURS = ["var(--c-sky)", "var(--c-sky)", "var(--c-mint)", "var(--c
 const rpeClass = (n: number) => (n <= 3 ? "bg-mint" : n <= 5 ? "bg-yellow" : n <= 7 ? "bg-orange" : "bg-pink");
 
 export function Accueil() {
-  const { data, analysis, today, prenom, loading, error, reload } = useData();
+  const { data, analysis, historique, today, prenom, loading, error, reload } = useData();
   const [ressenti, setRessenti] = useState(false);
   const navigate = useNavigate();
   const [prevu, setPrevu] = useState<NolioEvt | null>(null);
@@ -71,6 +72,8 @@ export function Accueil() {
   const last = lastInterval(data.seances);
   const facts = last ? intervalFacts(last) : null;
   const doubt = firstDoubt(data.seances, today);
+  const alerte = recoveryAlert(analysis, data.seances, today);
+  const bilan = weekReviewForHome(today, data.seances, analysis, historique);
   const lastFeeling = last ? data.feelings.find((f) => f.activityId === last.id) : undefined;
   const venir = aVenir(data.nolio, today);
   const objectif = prochainObjectif(data.nolio, today);
@@ -83,6 +86,20 @@ export function Accueil() {
           <div><h2 className="title">Tours à vérifier</h2><div>{doubt.seance.intervalTitle} : {doubt.doubt.charAt(0).toLowerCase() + doubt.doubt.slice(1)}.</div></div>
           <Link className="btn" to={`/activites/${doubt.seance.id}`}>Corriger</Link>
         </div>
+      ) : null}
+
+      {alerte ? (
+        <details className="card mb-[18px]" style={{ background: "var(--c-pink)", color: "var(--c-fill-ink)" }}>
+          <summary>Récupération faible : forme {alerte.score}/100<Chevron /></summary>
+          <ul className="mb-0 mt-2.5 grid list-disc gap-1 pl-5">{alerte.causes.map((c) => <li key={c}>{c}</li>)}</ul>
+          <ul className="mb-0 mt-2.5 grid list-disc gap-1 pl-5 font-bold">{alerte.tips.map((t) => <li key={t}>{t}</li>)}</ul>
+        </details>
+      ) : null}
+      {bilan ? (
+        <details className="card mb-[18px]">
+          <summary>Bilan de la semaine<Chevron /></summary>
+          <p className="mb-0 mt-2.5 whitespace-pre-line">{weekLines(bilan).join("\n")}</p>
+        </details>
       ) : null}
 
       <div className="grid grid-cols-1 items-stretch gap-[18px] min-[700px]:grid-cols-2 min-[1300px]:grid-cols-4">

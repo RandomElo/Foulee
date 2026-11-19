@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { categoryOf, groupWeeks, sportLabel } from "@foulee/core";
+import { sortiesAClasser } from "../lib/aClasser";
 import { useData } from "../DataProvider";
 import { Dot, Empty } from "../components/ui";
 import { fmtDayMonth, fmtDayShort, fmtKmOuHeure, fmtKmValue } from "../lib/format";
@@ -27,15 +28,22 @@ export function SeanceRow({ s, current = false }: { s: Seance; current?: boolean
 }
 
 export function Activites() {
-  const { data, loading } = useData();
+  const { data, analysis, loading } = useData();
   const [params] = useSearchParams();
   const semaine = /^\d{4}-\d{2}-\d{2}$/.test(params.get("semaine") ?? "") ? params.get("semaine") : null;
   const toutes = useMemo(() => groupWeeks(data.seances), [data.seances]);
+  const aClasser = useMemo(() => sortiesAClasser(data, analysis.refs.max).length, [data, analysis.refs.max]);
   const weeks = semaine ? toutes.filter((w) => w.start === semaine) : toutes;
   if (loading) return <p className="sub" role="status">Chargement…</p>;
   if (toutes.length === 0) return <Empty>Aucune séance pour l'instant.</Empty>;
   return (
     <>
+      {aClasser > 0 && !semaine ? (
+        <div className="card card-yellow mb-[18px] flex flex-wrap items-center justify-between gap-3">
+          <b>{aClasser} sortie{aClasser > 1 ? "s" : ""} ressemble{aClasser > 1 ? "nt" : ""} à une course</b>
+          <Link className="btn" to="/a-classer">Classer</Link>
+        </div>
+      ) : null}
       {semaine ? (
         <div className="mb-[18px] flex flex-wrap items-center gap-3">
           <Link className="btn btn-main" to="/activites">← Toutes les semaines</Link>

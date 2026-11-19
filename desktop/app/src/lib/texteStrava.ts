@@ -7,16 +7,31 @@ export function refsNumeriques(r: References): RefsNum {
   return { vma: lireNombre(r.vma, 30) ?? 0, rec5: lireTemps(r.r5) ?? 0, rec10: lireTemps(r.r10) ?? 0, recHalf: lireTemps(r.semi) ?? 0 };
 }
 
-/** Le nom et la description que l'appli mettrait sur Strava pour cette séance : fractionné avec « Spé » si les allures le justifient, footing, sortie longue. Rien pour les autres. */
-export function texteStravaDe(s: Seance, analyse: IntervalAnalysis | null, charge: number | null, refs: References): { texte: StravaText; specialite: string | null } | null {
+export interface ContexteTexte {
+  charge: number | null;
+  refs: References;
+  remarque: string | null;
+  /** Le « Spé » que l'utilisateur a choisi d'afficher dans le titre (jamais appliqué tout seul). */
+  specialiteChoisie: string | null;
+  /** Les lignes du bilan de la semaine, le dimanche. */
+  semaine: string[] | null;
+  /** La ligne « Récupération faible ce matin », quand c'est le cas. */
+  recuperation: string | null;
+}
+
+/**
+ * Le nom et la description que l'appli mettrait sur Strava pour cette séance : fractionné, footing, sortie longue ; rien pour les autres.
+ * `proposee` est la spécialité que les allures suggèrent (« 5 km »…) : elle n'entre dans le titre que si l'utilisateur la choisit.
+ */
+export function texteStravaDe(s: Seance, analyse: IntervalAnalysis | null, c: ContexteTexte): { texte: StravaText; proposee: string | null } | null {
   const cat = categoryOf(s);
   if (cat === "interval" && analyse && analyse.groups.length > 0) {
-    const specialite = proposedSpeciality(analyse, refsNumeriques(refs));
-    return { texte: buildInterval(analyse, charge, null, specialite), specialite };
+    const proposee = proposedSpeciality(analyse, refsNumeriques(c.refs));
+    return { texte: buildInterval(analyse, c.charge, c.remarque, c.specialiteChoisie, c.semaine, c.recuperation), proposee };
   }
   if (cat === "easy" || cat === "long") {
-    const t = buildEasy(s, cat, charge);
-    return t ? { texte: t, specialite: null } : null;
+    const t = buildEasy(s, cat, c.charge, c.semaine, c.recuperation);
+    return t ? { texte: t, proposee: null } : null;
   }
   return null;
 }

@@ -17,6 +17,10 @@ export interface ActivityRow {
   trimp: number | null;
   /** Étiquettes Strava de la même sortie, quand le serveur maison les a données. */
   stravaLabels: string[] | null;
+  /** Température minimale relevée par la montre : absente tant que la lecture Garmin du PC ne la rapporte pas. */
+  minTemperature?: number | null;
+  /** Secondes passées dans chacune des 5 zones de FC : absent tant que la lecture Garmin du PC ne les rapporte pas. */
+  hrZones?: number[] | null;
 }
 
 /** Une journée de santé. */

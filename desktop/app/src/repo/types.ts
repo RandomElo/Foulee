@@ -66,6 +66,8 @@ export interface Repo {
   load(): Promise<Donnees>;
   setRole(activityId: number, idx: number, role: LapRole | null): Promise<void>;
   clearRoles(activityId: number): Promise<void>;
+  /** Le type choisi à la main pour une séance (gagne sur la détection) ; null le retire. */
+  setCategory(activityId: number, category: string | null): Promise<void>;
   saveFeeling(f: Feeling): Promise<void>;
   getSetting(key: string): Promise<string | null>;
   setSetting(key: string, value: string): Promise<void>;
