@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { healthSummary, type HealthMetric } from "@foulee/core";
+import { Squelette } from "../components/Squelette";
 import { useData } from "../DataProvider";
 import { Courbe } from "../components/Courbe";
 import { Modal } from "../components/Modal";
@@ -30,7 +31,7 @@ export function Forme() {
   const [jours, setJours] = useState<(typeof PERIODES)[number]>(30);
   const [ouvert, setOuvert] = useState<HealthMetric["key"] | null>(null);
   const metriques = useMemo(() => healthSummary(jours, data.seances, data.daily, analysis, today), [jours, data, analysis, today]);
-  if (loading) return <p className="sub" role="status">Chargement…</p>;
+  if (loading) return <Squelette />;
   const m = metriques.find((x) => x.key === ouvert) ?? null;
   return (
     <>

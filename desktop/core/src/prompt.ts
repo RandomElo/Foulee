@@ -47,7 +47,7 @@ export function masquer(texte: string): string {
 // ---------- Le questionnaire ----------
 
 export type Modele = "bilan" | "preparation" | "croyances" | "libre";
-export type Ton = "direct" | "bienveillant" | "technique";
+export type Ton = "direct" | "technique";
 
 export interface Questionnaire {
   modele: Modele;
@@ -80,7 +80,6 @@ export interface DonneesPrompt {
 
 const TONS: Record<Ton, string> = {
   direct: "Réponds de façon directe et concise, sans flatterie : dis ce que les chiffres montrent, y compris ce qui ne va pas.",
-  bienveillant: "Réponds avec bienveillance et encouragement, en restant honnête sur ce que les chiffres montrent.",
   technique: "Réponds de façon technique, avec les mécanismes physiologiques et les ordres de grandeur, comme à un coureur averti.",
 };
 

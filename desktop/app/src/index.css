@@ -93,3 +93,9 @@ details.card > summary::-webkit-details-marker { display: none; }
 .chevron { transition: transform 0.15s; }
 details[open] > summary .chevron { transform: rotate(180deg); }
 @media (prefers-reduced-motion: reduce) { .chevron { transition: none; } }
+
+.squelette, .squelette-carte { background: var(--c-band); opacity: 0.55; border-radius: var(--radius); animation: squelette 1.4s ease-in-out infinite; }
+.squelette-carte { background: var(--c-card); opacity: 1; }
+.squelette-carte::after { content: ""; display: block; height: 100%; border-radius: calc(var(--radius) / 2); background: var(--c-band); opacity: 0.35; }
+@keyframes squelette { 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) { .squelette, .squelette-carte { animation: none; } }

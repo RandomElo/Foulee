@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Squelette } from "../components/Squelette";
 import { categoryLabel, type ReviewItem } from "@foulee/core";
 import { Check, Trophy } from "lucide-react";
 import { useData } from "../DataProvider";
@@ -16,7 +17,7 @@ export function AClasser() {
   const [fait, setFait] = useState<Set<number>>(new Set());
   const [erreur, setErreur] = useState<string | null>(null);
   const items = useMemo(() => sortiesAClasser(data, analysis.refs.max), [data, analysis.refs.max]);
-  if (loading) return <p className="sub" role="status">Chargement…</p>;
+  if (loading) return <Squelette />;
   const restant = items.filter((i) => !fait.has(i.activity.id));
   const classer = async (item: ReviewItem, type: string) => {
     setErreur(null);

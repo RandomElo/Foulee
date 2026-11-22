@@ -24,7 +24,7 @@ class Snapshot(
 private const val DATA_VERSION = 7
 
 /** Raise it when the interval detection changes: the titles stored in the base are rebuilt from the stored laps. */
-private const val TITLES_VERSION = 28
+private const val TITLES_VERSION = 29
 
 class AppState(private val context: Context) {
     private val settings = Settings(context)

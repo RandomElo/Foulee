@@ -34,7 +34,7 @@ export function Garmin({ ouvert = false, onConnecte }: { ouvert?: boolean; onCon
     setOccupe("lecture"); setMessage(null); setProgres({ etape: "Démarrage", fait: 0, total: 0 });
     try { setMessage({ ok: true, texte: resumeBilanGarmin(await garmin.synchroniser(complet, (etape, fait, total) => setProgres({ etape, fait, total }))) }); }
     catch (e) { setMessage({ ok: false, texte: texteErreur(e) }); }
-    finally { setOccupe(null); setProgres(null); charger(); void reload(); }
+    finally { setProgres({ etape: "Mise à jour de l'affichage", fait: 0, total: 0 }); charger(); await reload(); setOccupe(null); setProgres(null); }
   };
 
   const premiere = (etat?.total ?? 0) === 0;

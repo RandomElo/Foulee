@@ -1,5 +1,6 @@
 import { Chevron } from "../components/Chevron";
 import { useState } from "react";
+import { Squelette } from "../components/Squelette";
 import { Link, useParams } from "react-router-dom";
 import { addDays, categoryLabel, categoryOf, describeLaps, groupWeeks, jourDeCourse, porteLeBilan, recoveryLine, sessionRemark, sportLabel, weekReviewOf, weekLines, weekStart, dayOf } from "@foulee/core";
 import { useData } from "../DataProvider";
@@ -30,7 +31,7 @@ export function Fiche() {
   const [copie, setCopie] = useState<string | null>(null);
   const [avecSpe, setAvecSpe] = useState(false);
   const s = data.seances.find((x) => String(x.id) === id);
-  if (loading) return <p className="sub" role="status">Chargement…</p>;
+  if (loading) return <Squelette />;
   if (!s) return <><Link className="btn btn-main" to="/activites">← Activités</Link><div className="mt-4"><Empty>Cette séance n'existe pas (ou plus).</Empty></div></>;
 
   const feeling = data.feelings.find((f) => f.activityId === s.id);

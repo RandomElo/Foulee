@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { Squelette } from "../components/Squelette";
 import { categoryOf, groupWeeks, sportLabel } from "@foulee/core";
 import { sortiesAClasser } from "../lib/aClasser";
 import { useData } from "../DataProvider";
@@ -34,7 +35,7 @@ export function Activites() {
   const toutes = useMemo(() => groupWeeks(data.seances), [data.seances]);
   const aClasser = useMemo(() => sortiesAClasser(data, analysis.refs.max).length, [data, analysis.refs.max]);
   const weeks = semaine ? toutes.filter((w) => w.start === semaine) : toutes;
-  if (loading) return <p className="sub" role="status">Chargement…</p>;
+  if (loading) return <Squelette />;
   if (toutes.length === 0) return <Empty>Aucune séance pour l'instant.</Empty>;
   return (
     <>

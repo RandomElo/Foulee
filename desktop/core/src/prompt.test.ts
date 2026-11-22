@@ -59,11 +59,10 @@ describe("générateur de prompt", () => {
     expect(p).toContain("J+2 : Footing EF 45'");
   });
   it("modèle « croyances » : la croyance, l'objectif et les questions de recadrage", () => {
-    const p = construirePrompt(q({ modele: "croyances", texte: "je ne passerai jamais sous 17 min", objectif: "16:30 sur 5 km", ton: "bienveillant" }), donnees());
+    const p = construirePrompt(q({ modele: "croyances", texte: "je ne passerai jamais sous 17 min", objectif: "16:30 sur 5 km"}), donnees());
     expect(p).toContain("« je ne passerai jamais sous 17 min »");
     expect(p).toContain("Mon objectif : 16:30 sur 5 km");
     expect(p).toContain("cinq questions de recadrage");
-    expect(p).toContain("bienveillance");
   });
   it("la période limite les séances", () => {
     const p = construirePrompt(q({ jours: 3 }), donnees());

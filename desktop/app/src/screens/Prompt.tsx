@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Squelette } from "../components/Squelette";
 import { construirePrompt, QUESTIONNAIRE_PAR_DEFAUT, type Modele, type Questionnaire, type Ton } from "@foulee/core";
 import { useData } from "../DataProvider";
 import { refsNumeriques } from "../lib/texteStrava";
 
 const MODELES: [Modele, string][] = [["bilan", "Bilan"], ["preparation", "Préparer une course"], ["croyances", "Croyance limitante"], ["libre", "Question libre"]];
-const TONS: [Ton, string][] = [["direct", "Direct"], ["bienveillant", "Bienveillant"], ["technique", "Technique"]];
+const TONS: [Ton, string][] = [["direct", "Direct"], ["technique", "Technique"]];
 const PERIODES = [14, 28, 56, 90];
 const champ = "w-full rounded-[10px] border-[length:var(--outline)] border-line bg-card px-3 py-2 text-ink";
 
@@ -37,7 +38,7 @@ export function Prompt() {
       prevus: data.nolio.filter((e) => e.genre === "prevu").map((e) => ({ date: e.date, titre: e.titre, dureeS: e.dureeS, distanceM: e.distanceM })),
     });
   }, [q, data, analysis, today, refs]);
-  if (loading) return <p className="sub" role="status">Chargement…</p>;
+  if (loading) return <Squelette />;
   const copier = () => { void navigator.clipboard.writeText(texte).then(() => setCopie(true)).catch(() => undefined); };
   const avecObjectif = q.modele === "preparation" || q.modele === "croyances";
   return (

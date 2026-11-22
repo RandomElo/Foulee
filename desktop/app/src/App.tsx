@@ -1,5 +1,6 @@
 import { CircleUser, Footprints, HeartPulse, House, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
+import { Squelette } from "./components/Squelette";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { useData } from "./DataProvider";
 import { relancer, useMiseAJour } from "./maj";
@@ -39,8 +40,7 @@ export default function App() {
     { to: "/forme", label: "Forme", icon: HeartPulse, end: false },
     { to: "/reglages", label: prenom || "Profil", icon: CircleUser, end: false },
   ];
-  if (onboarde === null) return <div className="p-5" role="status">Chargement…</div>;
-  if (!onboarde) return <main className="flex min-h-full flex-col"><Onboarding /></main>;
+  if (onboarde === false) return <main className="flex min-h-full flex-col"><Onboarding /></main>;
   return (
     <div className="flex min-h-full flex-col">
       <header className="band flex flex-wrap items-center gap-1.5 px-4 py-2.5">
@@ -57,7 +57,7 @@ export default function App() {
       </header>
       <main className="flex-1 p-5 max-[700px]:p-3">
         <ScrollToTop />
-        <Routes>
+        {onboarde === null ? <Squelette /> : <Routes>
           <Route path="/" element={<Accueil />} />
           <Route path="/activites" element={<Activites />} />
           <Route path="/activites/:id" element={<Fiche />} />
@@ -66,7 +66,7 @@ export default function App() {
           <Route path="/forme" element={<Forme />} />
           <Route path="/reglages" element={<Reglages />} />
           <Route path="*" element={<Accueil />} />
-        </Routes>
+        </Routes>}
       </main>
     </div>
   );

@@ -93,7 +93,6 @@ object Hills {
         return best
     }
 
-    private fun seconds(s: Int) = if (s < 60) "$s${NBSP}s" else "${s / 60}${NBSP}min" + if (s % 60 != 0) "${NBSP}${(s % 60).toString().padStart(2, '0')}" else ""
 
     /** A hill's length rounded the way one calls it: to 10 m under 75 m, to 50 m up to 950 m, to 100 m beyond (111 m is "100 m") */
     private fun roundLength(m: Double): Int {
@@ -101,14 +100,12 @@ object Hills {
         return maxOf(step, (m / step).roundToInt() * step)
     }
 
-    /** "10 × côte de 100 m (39 s, +10 m)", or null when the curve shows no hill repeats. Without distances in the curve: "10 × côte de 10 m (39 s)". */
+    /** "10 × côte de 100 m", or null when the curve shows no hill repeats. Without distances in the curve: "10 × côtes". */
     fun title(samples: List<Sample>): String? {
         val run = bestRun(climbs(samples))
         if (run.isEmpty()) return null
-        val gain = median(run.map { it.gain }).roundToInt()
-        val dur = seconds(median(run.map { it.seconds }).roundToInt())
         val lengths = run.mapNotNull { it.meters }
-        if (lengths.size * 10 >= run.size * 6) return "${run.size} × côte de ${roundLength(median(lengths))}${NBSP}m ($dur, +$gain${NBSP}m)"
-        return "${run.size} × côte de $gain${NBSP}m ($dur)"
+        if (lengths.size * 10 >= run.size * 6) return "${run.size} × côte de ${roundLength(median(lengths))}${NBSP}m"
+        return "${run.size} × côtes"
     }
 }

@@ -29,7 +29,7 @@ export function Nolio() {
     setOccupe("lecture"); setMessage(null); setProgres({ fait: 0, total: 0 });
     try { setMessage({ ok: true, texte: resumeBilan(await nolio.synchroniser((fait, total) => setProgres({ fait, total }))) }); }
     catch (e) { setMessage({ ok: false, texte: texteErreur(e) }); }
-    finally { setOccupe(null); setProgres(null); charger(); void reload(); }
+    finally { setProgres({ fait: 0, total: 0 }); charger(); await reload(); setOccupe(null); setProgres(null); }
   };
   /** La connexion, puis la lecture dès qu'elle est faite. Le mot de passe est effacé de l'écran dès l'envoi. */
   const connecter = async () => {
@@ -54,7 +54,7 @@ export function Nolio() {
       progression={occupe === "lecture" && progres ? { pct, libelle: "Lecture de Nolio", texte: progres.total > 0 ? `Période ${progres.fait} sur ${progres.total}` : (attente ?? "Démarrage…") } : null}
       message={message}
       actions={<>
-        <button className="btn disabled:opacity-50" disabled={occupe !== null} aria-expanded={formulaire} onClick={() => { setFormulaire((f) => !f); setMessage(null); }}>{formulaire ? "Fermer" : "Se connecter"}</button>
+        <button className="btn disabled:opacity-50" disabled={occupe !== null} aria-expanded={formulaire} onClick={() => { setFormulaire((f) => !f); setMessage(null); }}>{formulaire ? "Fermer" : (etat?.total ?? 0) > 0 ? "Se reconnecter" : "Se connecter"}</button>
         <button className="btn btn-main disabled:opacity-50" disabled={occupe !== null} onClick={lire}>{occupe === "lecture" ? "Lecture…" : "Synchroniser"}</button>
         {occupe !== null ? <button className="btn" onClick={() => nolio.annuler()}>Annuler</button> : null}
       </>}

@@ -52,7 +52,26 @@ object StravaTexts {
         val s = a.strava ?: return false
         val written = sent["v${a.id}"]?.first
         if (written != null) return hashOf(s.name, s.description) != written
-        return (s.description.isNotBlank() && !s.description.trim().endsWith(StravaTextBuilder.SIGNATURE)) || !defaultTitle.containsMatchIn(s.name.trim())
+        // Written before the app noted what it wrote: its signature at the end of the description shows the text is its own (even with its own title)
+        if (s.description.trim().endsWith(StravaTextBuilder.SIGNATURE)) return false
+        return s.description.isNotBlank() || !defaultTitle.containsMatchIn(s.name.trim())
+    }
+
+    /** A description Eloi wrote himself: it is kept, and the form figures of the day go after it (once). */
+    private fun hasOwnDescription(a: ActivityRow): Boolean {
+        val d = a.strava?.description?.trim() ?: return false
+        return d.isNotBlank() && !d.endsWith(StravaTextBuilder.SIGNATURE)
+    }
+
+    /** His own description + the form figures at the end, written over (ecraser) with his text first. Null when there is no figure to add. */
+    private fun appendItem(a: ActivityRow, an: Analysis, activities: List<ActivityRow>): TextItem? {
+        val s = a.strava ?: return null
+        if (WeekReviews.isRace(a) || WeekReviews.isRaceDay(a, activities)) return null
+        val extra = listOfNotNull(RecoveryCheck.line(readinessOf(a, an)), StravaTextBuilder.figures(an.globalLoadOn(a)))
+        if (extra.isEmpty()) return null
+        val description = s.description.trim() + "\n\n" + extra.joinToString("\n")
+        val json = JSONObject().put("stravaId", s.id).put("nom", s.name).put("description", description).put("ecraser", true).put("poserLabel", false)
+        return TextItem(a, StravaText(s.name, description, interval = false), "f${a.id}", "ajout", json)
     }
 
     private fun itemOf(a: ActivityRow, text: StravaText): TextItem {
@@ -74,7 +93,8 @@ object StravaTexts {
         val history = SessionHistory(activities, db, an)
         val (mine, his) = candidates.partition { !editedOnStrava(it, sent) }
         his.forEach { db.addLog("I", "strava", "texte ${it.id} : titre ou description changés sur Strava, rien n'est écrit par-dessus") }
-        return mine.mapNotNull { a -> textOf(a, an, laps[a.id], history, activities)?.let { itemOf(a, it) } }.filter { sent[it.key]?.first != it.hash }
+        val appended = his.filter { hasOwnDescription(it) && sent["f${it.id}"] == null }.mapNotNull { appendItem(it, an, activities) }
+        return mine.mapNotNull { a -> textOf(a, an, laps[a.id], history, activities)?.let { itemOf(a, it) } }.filter { sent[it.key]?.first != it.hash } + appended
     }
 
     // In simulation nothing is remembered as sent: this keeps the same text from going again at every reload
@@ -158,7 +178,7 @@ object StravaTexts {
             // Written, already identical, or protected (a text Eloi wrote himself): not asked again. The rest is retried later.
             db.markStravaSent(done.filter { !simulation && it.second in setOf("ecrit", "inchange", "protege") }.map { (item, _) -> Triple(item.key, item.hash, "texte") })
             // What the app wrote, to tell later whether he changed it on Strava
-            db.markStravaSent(done.filter { !simulation && it.second in setOf("ecrit", "inchange") }.map { (item, _) -> Triple("v${item.activity.id}", hashOf(item.text.name, item.text.description), "vu") })
+            db.markStravaSent(done.filter { !simulation && it.second in setOf("ecrit", "inchange") && !it.first.key.startsWith("f") }.map { (item, _) -> Triple("v${item.activity.id}", hashOf(item.text.name, item.text.description), "vu") })
         }
         return Outcome(simulation, statuses.groupingBy { it.second }.eachCount(), statuses)
     }

@@ -93,7 +93,6 @@ export function bestRun(cl: Climb[]): Climb[] {
   return best;
 }
 
-const duration = (s: number) => (s < 60 ? `${s}${NBSP}s` : `${Math.floor(s / 60)}${NBSP}min` + (s % 60 !== 0 ? `${NBSP}${String(s % 60).padStart(2, "0")}` : ""));
 
 /** La longueur d'une côte arrondie comme on l'appelle : à 10 m sous 75 m, à 50 m jusqu'à 950 m, à 100 m au-delà (111 m se dit « 100 m »). */
 function roundLength(m: number): number {
@@ -105,9 +104,7 @@ function roundLength(m: number): number {
 export function hillsTitle(samples: Sample[]): string | null {
   const run = bestRun(climbs(samples));
   if (run.length === 0) return null;
-  const gain = roundToInt(median(run.map((c) => c.gain)));
-  const dur = duration(roundToInt(median(run.map(seconds))));
   const lengths = run.map((c) => c.meters).filter((m): m is number => m !== null);
-  if (lengths.length * 10 >= run.length * 6) return `${run.length} × côte de ${roundLength(median(lengths))}${NBSP}m (${dur}, +${gain}${NBSP}m)`;
-  return `${run.length} × côte de ${gain}${NBSP}m (${dur})`;
+  if (lengths.length * 10 >= run.length * 6) return `${run.length} × côte de ${roundLength(median(lengths))}${NBSP}m`;
+  return `${run.length} × côtes`;
 }

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Squelette } from "../components/Squelette";
 import { Trophy } from "lucide-react";
 import { dayOf, isRun, kmPerWeek, loadZoneOf, LOAD_ZONES, addDays, weekStart, recoveryAlert, weekLines, weekReviewForHome } from "@foulee/core";
 import { Chevron } from "../components/Chevron";
@@ -25,7 +26,7 @@ export function Accueil() {
   const navigate = useNavigate();
   const [prevu, setPrevu] = useState<NolioEvt | null>(null);
 
-  if (loading) return <p className="sub" role="status">Chargement…</p>;
+  if (loading) return <Squelette />;
   if (error) return <div className="card text-bad" role="alert">Lecture impossible : {error}</div>;
 
   const hello = (
