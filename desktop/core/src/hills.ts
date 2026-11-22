@@ -15,8 +15,8 @@ const MARGIN = 1.5;
 const LEAD_IN = 60;
 const MIN_REPS = 5;
 
-/** `start` et `end` en secondes, `gain` en mètres. */
-export interface Climb { start: number; end: number; gain: number }
+/** `start` et `end` en secondes, `gain` en mètres, `meters` la distance courue dans la côte quand la courbe a des distances. */
+export interface Climb { start: number; end: number; gain: number; meters: number | null }
 const seconds = (c: Climb) => c.end - c.start;
 
 const median = (v: number[]) => {
@@ -53,6 +53,7 @@ export function climbs(samples: Sample[]): Climb[] {
   const pts = samples.filter((s): s is Sample & { t: number; ele: number } => s.t !== null && s.ele !== null);
   if (pts.length < 30) return [];
   const t = pts.map((s) => s.t);
+  const d = pts.map((s) => s.d);
   const e = smooth(pts.map((s) => s.ele));
   const p = pivots(e);
   const out: Climb[] = [];
@@ -66,7 +67,8 @@ export function climbs(samples: Sample[]): Climb[] {
       if ((t[st] as number) - (t[i] as number) <= LEAD_IN) st = i;
       let top = st;
       for (let x = st; x <= j; x++) if ((t[x] as number) - (t[st] as number) <= WINDOW && (e[x] as number) > (e[top] as number)) top = x;
-      out.push({ start: t[st] as number, end: t[top] as number, gain: (e[top] as number) - (e[st] as number) });
+      const dS = d[st] ?? null, dT = d[top] ?? null;
+      out.push({ start: t[st] as number, end: t[top] as number, gain: (e[top] as number) - (e[st] as number), meters: dS !== null && dT !== null ? dT - dS : null });
     }
   }
   return out;
@@ -93,9 +95,19 @@ export function bestRun(cl: Climb[]): Climb[] {
 
 const duration = (s: number) => (s < 60 ? `${s}${NBSP}s` : `${Math.floor(s / 60)}${NBSP}min` + (s % 60 !== 0 ? `${NBSP}${String(s % 60).padStart(2, "0")}` : ""));
 
-/** « 10 × côte de 10 m (39 s) », ou null quand la courbe ne montre pas de répétitions de côtes. */
+/** La longueur d'une côte arrondie comme on l'appelle : à 10 m sous 75 m, à 50 m jusqu'à 950 m, à 100 m au-delà (111 m se dit « 100 m »). */
+function roundLength(m: number): number {
+  const step = m < 75 ? 10 : m < 950 ? 50 : 100;
+  return Math.max(step, roundToInt(m / step) * step);
+}
+
+/** « 10 × côte de 100 m (39 s, +10 m) », ou null quand la courbe ne montre pas de répétitions de côtes. Sans distances dans la courbe : « 10 × côte de 10 m (39 s) ». */
 export function hillsTitle(samples: Sample[]): string | null {
   const run = bestRun(climbs(samples));
   if (run.length === 0) return null;
-  return `${run.length} × côte de ${roundToInt(median(run.map((c) => c.gain)))}${NBSP}m (${duration(roundToInt(median(run.map(seconds))))})`;
+  const gain = roundToInt(median(run.map((c) => c.gain)));
+  const dur = duration(roundToInt(median(run.map(seconds))));
+  const lengths = run.map((c) => c.meters).filter((m): m is number => m !== null);
+  if (lengths.length * 10 >= run.length * 6) return `${run.length} × côte de ${roundLength(median(lengths))}${NBSP}m (${dur}, +${gain}${NBSP}m)`;
+  return `${run.length} × côte de ${gain}${NBSP}m (${dur})`;
 }

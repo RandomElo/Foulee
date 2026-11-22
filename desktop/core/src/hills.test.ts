@@ -20,11 +20,15 @@ function parcours(n: number, gain = 12, montee = 33, descente = 44, avant = 600,
 describe("côtes lues sur l'altitude", () => {
   it("dix montées régulières donnent « 10 × côte de … »", () => {
     const titre = hillsTitle(parcours(10));
-    expect(titre).toMatch(/^10 × côte de \d+.m \(\d+.s\)$/);
+    expect(titre).toMatch(/^10 × côte de 100.m \(\d+.s, \+\d+.m\)$/);
     expect(hillClimbs(parcours(10)).length).toBeGreaterThanOrEqual(10);
   });
   it("les longues montées sont écrites en minutes", () => {
-    expect(hillsTitle(parcours(6, 22, 66, 80))).toMatch(/^6 × côte de \d+.m \(1.min(.\d\d)?\)$/);
+    expect(hillsTitle(parcours(6, 22, 66, 80))).toMatch(/^6 × côte de 200.m \(1.min(.\d\d)?, \+\d+.m\)$/);
+  });
+  it("sans distances dans la courbe, le titre garde le dénivelé", () => {
+    const sansDistance = parcours(10).map((x) => ({ ...x, d: null }));
+    expect(hillsTitle(sansDistance)).toMatch(/^10 × côte de \d+.m \(\d+.s\)$/);
   });
   it("quatre montées seulement : pas une séance de côtes", () => {
     expect(hillsTitle(parcours(4))).toBeNull();
