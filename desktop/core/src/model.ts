@@ -21,6 +21,8 @@ export interface ActivityRow {
   minTemperature?: number | null;
   /** Secondes passées dans chacune des 5 zones de FC : absent tant que la lecture Garmin du PC ne les rapporte pas. */
   hrZones?: number[] | null;
+  /** Training Effect aérobie de Garmin (0 à 5) : absent si la montre ne le donne pas. */
+  aerobicTe?: number | null;
 }
 
 /** Une journée de santé. */

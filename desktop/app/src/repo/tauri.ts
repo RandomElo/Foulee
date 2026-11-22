@@ -7,6 +7,12 @@ import type { Donnees, Feeling, NolioEvt, Repo, Seance, StravaAct } from "./type
 type Ligne = Record<string, unknown>;
 const num = (v: unknown): number | null => (typeof v === "number" ? v : null);
 const txt = (v: unknown): string | null => (typeof v === "string" ? v : null);
+/** « z1,z2,z3,z4,z5 » (secondes dans chaque zone de FC) en tableau ; null si ce n'est pas cinq nombres. */
+export function zones(v: unknown): number[] | null {
+  if (typeof v !== "string") return null;
+  const z = v.split(",").map(Number);
+  return z.length === 5 && z.every((x) => Number.isFinite(x) && x >= 0) ? z : null;
+}
 
 const lap = (r: Ligne): Lap => ({
   distance: num(r.distance), duration: num(r.duration), averageSpeed: num(r.avg_speed), averageHr: num(r.avg_hr), maxHr: num(r.max_hr),
@@ -37,6 +43,7 @@ export const tauriRepo: Repo = {
       id: a.id as number, source: String(a.source), startLocal: String(a.start_local), type: String(a.type), distance: num(a.distance), duration: num(a.duration),
       averageSpeed: num(a.avg_speed), averageHr: num(a.avg_hr), maxHr: num(a.max_hr), trainingLoad: num(a.training_load), name: String(a.name ?? ""), elevation: num(a.elevation),
       manualCategory: txt(a.manual_category), trimp: num(a.trimp), stravaLabels: null,
+      minTemperature: num(a.min_temperature), aerobicTe: num(a.aerobic_te), hrZones: zones(a.hr_zones),
     }, lapsDe.get(a.id as number) ?? [], rolesDe.get(a.id as number)));
     return {
       seances,

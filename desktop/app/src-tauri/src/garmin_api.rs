@@ -395,7 +395,7 @@ pub(crate) mod faux {
         }
         if chemin == "/activitylist-service/activities/search/activities" {
             let (debut, limite): (usize, usize) = (param("start").parse().unwrap_or(0), param("limit").parse().unwrap_or(20));
-            let items: Vec<Value> = activites.iter().skip(debut).take(limite).map(|(d, t, k, id)| json!({ "activityId": id, "activityName": format!("Sortie {id}"), "startTimeLocal": d, "activityType": { "typeKey": t }, "distance": k, "duration": 3000.0, "averageSpeed": 3.3, "averageHR": 150.0, "maxHR": 171.0, "activityTrainingLoad": 80.0, "elevationGain": 12.0 })).collect();
+            let items: Vec<Value> = activites.iter().skip(debut).take(limite).map(|(d, t, k, id)| json!({ "activityId": id, "activityName": format!("Sortie {id}"), "startTimeLocal": d, "activityType": { "typeKey": t }, "distance": k, "duration": 3000.0, "averageSpeed": 3.3, "averageHR": 150.0, "maxHR": 171.0, "activityTrainingLoad": 80.0, "elevationGain": 12.0, "minTemperature": 9.5, "aerobicTrainingEffect": 3.4, "hrTimeInZone_1": 300.0, "hrTimeInZone_2": 1500.0, "hrTimeInZone_3": 600.0, "hrTimeInZone_4": 400.0, "hrTimeInZone_5": 200.0 })).collect();
             return corps_json(Value::Array(items));
         }
         if let Some(id) = chemin.strip_prefix("/activity-service/activity/").and_then(|r| r.strip_suffix("/splits")) {

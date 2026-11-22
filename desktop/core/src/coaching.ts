@@ -79,6 +79,24 @@ export function weekReviewOf(date: string, activities: ActivityRow[], analysis: 
 /** Vrai le dimanche : le jour où le bilan part sur Strava et s'affiche à l'accueil. */
 export const isReviewDay = (date: string): boolean => weekdayOf(date) === 0;
 
+/** Une course : classée compétition (à la main ou par la détection). Le test peut être élargi (label « Race » de Strava). */
+export type EstCourse = (a: ActivityRow) => boolean;
+const parDefaut: EstCourse = (a) => categoryOf(a) === "competition";
+
+const memeJour = (a: ActivityRow, activities: ActivityRow[]) => activities.filter((x) => x.id > 0 && isRun(x) && x.startLocal.slice(0, 10) === a.startLocal.slice(0, 10));
+
+/** Un jour avec une course : ni bilan de la semaine ni chiffre de forme dans les textes Strava. */
+export const jourDeCourse = (a: ActivityRow, activities: ActivityRow[], estCourse: EstCourse = parDefaut): boolean => memeJour(a, activities).some(estCourse);
+
+/** La sortie qui porte le bilan de la semaine : le dimanche, la dernière sortie du jour seulement (pas chacune), et aucune un jour de course. */
+export function porteLeBilan(a: ActivityRow, activities: ActivityRow[], estCourse: EstCourse = parDefaut): boolean {
+  if (!isRun(a) || !isReviewDay(a.startLocal.slice(0, 10))) return false;
+  const du = memeJour(a, activities);
+  if (du.some(estCourse)) return false;
+  const derniere = du.reduce<ActivityRow | null>((m, x) => (m === null || x.startLocal > m.startLocal ? x : m), null);
+  return derniere?.id === a.id;
+}
+
 /** Le bilan à montrer à l'accueil : la semaine en cours le dimanche, la semaine qui vient de finir le lundi. */
 export function weekReviewForHome(today: string, activities: ActivityRow[], analysis: Analysis, history: SessionHistory | null): WeekReview | null {
   const d = weekdayOf(today);

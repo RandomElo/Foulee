@@ -1,7 +1,7 @@
 import { Chevron } from "../components/Chevron";
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { addDays, categoryLabel, categoryOf, describeLaps, groupWeeks, isReviewDay, recoveryLine, sessionRemark, sportLabel, weekReviewOf, weekLines, weekStart, dayOf } from "@foulee/core";
+import { addDays, categoryLabel, categoryOf, describeLaps, groupWeeks, jourDeCourse, porteLeBilan, recoveryLine, sessionRemark, sportLabel, weekReviewOf, weekLines, weekStart, dayOf } from "@foulee/core";
 import { useData } from "../DataProvider";
 import { PrevuModal } from "../components/PrevuModal";
 import { RessentiModal } from "../components/RessentiModal";
@@ -85,10 +85,12 @@ export function Fiche() {
   const remarque = sessionRemark(analyseSeance);
   const jour = dayOf(s);
   // Le dimanche, le bilan de la semaine part au bout de la description ; une récupération faible du matin s'ajoute aussi.
-  const semaine = isReviewDay(jour) && s.type.includes("running") ? weekReviewOf(jour, data.seances, analysis, histo) : null;
+  const estCourse = (x: { id: number }) => { const y = data.seances.find((z) => z.id === x.id); return !!y && (categoryOf(y) === "competition" || (stravaDe(data.strava, y)?.labels ?? []).some((l) => l.toLowerCase() === "race")); };
+  const semaine = porteLeBilan(s, data.seances, estCourse) ? weekReviewOf(jour, data.seances, analysis, histo) : null;
+  const jourCourse = jourDeCourse(s, data.seances, estCourse);
   const heure = Number(s.startLocal.slice(11, 13));
   const forme = analysis.readinessOn(jour, heure >= 14 ? jour : addDays(jour, -1))?.score ?? null;
-  const proposition = texteStravaDe(s, detail?.analysis ?? null, { charge: load, refs, remarque, specialiteChoisie: avecSpe ? stravaPropose(s, detail?.analysis ?? null, refs) : null, semaine: semaine ? weekLines(semaine) : null, recuperation: recoveryLine(forme) });
+  const proposition = estCourse(s) ? null : texteStravaDe(s, detail?.analysis ?? null, { charge: load, refs, remarque, specialiteChoisie: avecSpe ? stravaPropose(s, detail?.analysis ?? null, refs) : null, semaine: semaine ? weekLines(semaine) : null, recuperation: jourCourse ? null : recoveryLine(forme) });
   const copier = (cle: string, texte: string) => { void navigator.clipboard.writeText(texte).then(() => { setCopie(cle); setTimeout(() => setCopie(null), 1500); }).catch(() => undefined); };
   const analyseCard = analyseSeance ? (
     <details className="card">

@@ -25,14 +25,34 @@ object StravaTexts {
 
     /** The text of one session, with the two form figures of its day. Null when it is neither an interval session (laps) nor a footing or long run. */
     fun textOf(a: ActivityRow, analysis: Analysis, laps: List<Lap>?, history: SessionHistory?, activities: List<ActivityRow>): StravaText? {
+        // A race (chosen by hand or labelled on Strava) gets no text at all: no review of the week, no form figure
+        if (WeekReviews.isRace(a)) return null
         val date = LocalDate.parse(a.startLocal.take(10))
         // On a Sunday run, the review of the week goes at the end of the description
-        val week = if (WeekReviews.isReviewDay(date)) WeekReviews.of(date, activities, analysis, history) else null
-        val recovery = RecoveryCheck.line(readinessOf(a, analysis))
+        // (only the last run of the day carries it, and a day with a race gets neither the review nor the form figure)
+        val week = if (WeekReviews.carriesReview(a, activities)) WeekReviews.of(date, activities, analysis, history) else null
+        val recovery = if (WeekReviews.isRaceDay(a, activities)) null else RecoveryCheck.line(readinessOf(a, analysis))
         val iv = if (a.category == "interval") laps?.let { Intervals.analyze(it, a.recoveryModes) } else null
         if (iv != null) return StravaTextBuilder.build(iv, analysis.globalLoadOn(a), laps?.let { SessionRemark.of(history?.analyze(a.id, emptyList(), it)) }, a.speciality, week, recovery)
         if (!a.isRun || a.category !in setOf("easy", "long")) return null
         return StravaTextBuilder.buildEasy(a, analysis.globalLoadOn(a), week, recovery)
+    }
+
+    /** What is on Strava, as the app compares it: line endings and outer spaces ignored. */
+    private fun hashOf(name: String, description: String) = (name.replace("\r\n", "\n").trim() + "\n" + description.replace("\r\n", "\n").trim()).hashCode().toString(16)
+
+    /** Strava's own and Garmin's default titles: "Morning Run", "Paris Course à pied"… A title that is none of them was chosen by hand. */
+    private val defaultTitle = Regex("^(morning|afternoon|evening|lunch|night) run$|^run$|course à pied", RegexOption.IGNORE_CASE)
+
+    /**
+     * True when the title or the description on Strava is no longer what the app wrote (or never was the app's: a description or a title he gave
+     * himself): such an outing is never written over, so a change made on Strava before the sync is kept. The app notes what it wrote ("v" + id).
+     */
+    private fun editedOnStrava(a: ActivityRow, sent: Map<String, Pair<String, String>>): Boolean {
+        val s = a.strava ?: return false
+        val written = sent["v${a.id}"]?.first
+        if (written != null) return hashOf(s.name, s.description) != written
+        return (s.description.isNotBlank() && !s.description.trim().endsWith(StravaTextBuilder.SIGNATURE)) || !defaultTitle.containsMatchIn(s.name.trim())
     }
 
     private fun itemOf(a: ActivityRow, text: StravaText): TextItem {
@@ -52,7 +72,9 @@ object StravaTexts {
         val laps = db.lapsOf(candidates.map { it.id })
         val an = analysis()
         val history = SessionHistory(activities, db, an)
-        return candidates.mapNotNull { a -> textOf(a, an, laps[a.id], history, activities)?.let { itemOf(a, it) } }.filter { sent[it.key]?.first != it.hash }
+        val (mine, his) = candidates.partition { !editedOnStrava(it, sent) }
+        his.forEach { db.addLog("I", "strava", "texte ${it.id} : titre ou description changés sur Strava, rien n'est écrit par-dessus") }
+        return mine.mapNotNull { a -> textOf(a, an, laps[a.id], history, activities)?.let { itemOf(a, it) } }.filter { sent[it.key]?.first != it.hash }
     }
 
     // In simulation nothing is remembered as sent: this keeps the same text from going again at every reload
@@ -135,6 +157,8 @@ object StravaTexts {
             statuses += done
             // Written, already identical, or protected (a text Eloi wrote himself): not asked again. The rest is retried later.
             db.markStravaSent(done.filter { !simulation && it.second in setOf("ecrit", "inchange", "protege") }.map { (item, _) -> Triple(item.key, item.hash, "texte") })
+            // What the app wrote, to tell later whether he changed it on Strava
+            db.markStravaSent(done.filter { !simulation && it.second in setOf("ecrit", "inchange") }.map { (item, _) -> Triple("v${item.activity.id}", hashOf(item.text.name, item.text.description), "vu") })
         }
         return Outcome(simulation, statuses.groupingBy { it.second }.eachCount(), statuses)
     }

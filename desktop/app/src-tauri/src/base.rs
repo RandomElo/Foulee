@@ -85,6 +85,10 @@ pub(crate) const MIGRATIONS: &[&str] = &[
         lu_le TEXT NOT NULL
      );
      CREATE INDEX strava_activites_debut_local ON strava_activites (debut_local);",
+    // 6 : ce que la liste d'activités de Garmin donne en plus : température minimale, Training Effect aérobie, secondes passées dans chaque zone de FC (texte « z1,z2,z3,z4,z5 »)
+    "ALTER TABLE activities ADD COLUMN min_temperature REAL;
+     ALTER TABLE activities ADD COLUMN aerobic_te REAL;
+     ALTER TABLE activities ADD COLUMN hr_zones TEXT;",
 ];
 
 /// Ouvre (ou crée) la base chiffrée avec une clé de 32 octets en hexadécimale, puis joue les migrations.

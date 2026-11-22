@@ -1,6 +1,6 @@
 // « À classer » : les sorties qui ressemblent à une compétition, trouvées par des règles simples (aucune supposition cachée) : portage de Review.list (Review.kt).
 // Chaque critère rempli ajoute des points et s'affiche comme une raison. Une sortie est proposée dès REVIEW_SCORE points, jusqu'à ce qu'un type soit choisi à la main.
-import { roundToInt } from "./format";
+import { dec, roundToInt } from "./format";
 import { addDays } from "./dates";
 import { detectedCategory, type Category } from "./categories";
 import { isRun, type ActivityRow } from "./model";
@@ -48,6 +48,7 @@ export function reviewList(activities: ActivityRow[], hrMax: number, stravaOf: (
       if (s.labels.some((l) => l.toLowerCase() === "race")) { score += 2.5; reasons.push("Label Strava : Course"); }
       if (hasRaceWords(`${s.name} ${s.description}`) && !nameSaysRace) { score += 1.5; reasons.push(`Strava : « ${s.name} »`); }
     }
+    if (a.intervalTitle === null && (a.aerobicTe ?? 0) >= 4.2) { score += 0.5; reasons.push(`Training Effect aérobie ${dec(a.aerobicTe as number, 1)}`); }
     const start = new Date(a.startLocal.replace(" ", "T"));
     const hour = start.getHours() + start.getMinutes() / 60;
     const weekend = start.getDay() === 0 || start.getDay() === 6;

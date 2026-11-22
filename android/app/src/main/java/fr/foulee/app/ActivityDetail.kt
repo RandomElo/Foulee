@@ -657,7 +657,8 @@ fun ActivityDetailScreen(state: AppState, snap: Snapshot, opened: ActivityRow, o
     }
     val remark = remember(sessionAnalysis) { SessionRemark.of(sessionAnalysis) }
     // On a Sunday run: the review of the week, also written in the Strava description
-    val weekReview = remember(a.id, snap) { LocalDate.parse(a.startLocal.take(10)).takeIf { a.isRun && WeekReviews.isReviewDay(it) }?.let { WeekReviews.of(it, snap.activities, analysis, snap.history) } }
+    val weekReview = remember(a.id, snap) { LocalDate.parse(a.startLocal.take(10)).takeIf { WeekReviews.carriesReview(a, snap.activities) }?.let { WeekReviews.of(it, snap.activities, analysis, snap.history) } }
+    val raceDay = remember(a.id, snap) { WeekReviews.isRaceDay(a, snap.activities) }
     val weekPoint = analysis.load.firstOrNull { it.date == a.startLocal.take(10) }
     val cells = listOfNotNull(
         Cell("distance", "Distance", Fmt.km(a.distance), false),
@@ -674,7 +675,7 @@ fun ActivityDetailScreen(state: AppState, snap: Snapshot, opened: ActivityRow, o
     val showAltitude = remember(a.id, snap) { hilly(a, snap.activities) }
     var infoOpen by remember(a.id) { mutableStateOf(false) }
     val accordion = remember(a.id) { androidx.compose.runtime.mutableStateOf<String?>(null) }
-    if (infoOpen) InfoDialog(state, a, detail, intervals, textOf = { buildText(a, intervals, analysis, remark, weekReview) }) { infoOpen = false }
+    if (infoOpen) InfoDialog(state, a, detail, intervals, textOf = { buildText(a, intervals, analysis, remark, weekReview, raceDay) }) { infoOpen = false }
 
     androidx.compose.runtime.CompositionLocalProvider(LocalAccordion provides accordion) {
     Page {
@@ -754,7 +755,7 @@ fun ActivityDetailScreen(state: AppState, snap: Snapshot, opened: ActivityRow, o
             if (splits.isNotEmpty() && intervals == null) SplitsCard(splits, a.isRun)
             val lapRows = intervals?.laps ?: d.laps.map { LapInfo(it, LapRole.OTHER) }
             // What the app would write on Strava for this session, folded, just before the watch laps
-            buildText(a, intervals, analysis, remark, weekReview)?.let { text ->
+            buildText(a, intervals, analysis, remark, weekReview, raceDay)?.let { text ->
                 FoldCard(title = "Texte pour Strava") {
                     androidx.compose.foundation.text.selection.SelectionContainer {
                         Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(pal.track).padding(12.dp)) {
@@ -800,9 +801,9 @@ fun ActivityDetailScreen(state: AppState, snap: Snapshot, opened: ActivityRow, o
 
 
 /** The title and description the app would put on Strava for this session, or null when it has none. */
-private fun buildText(a: ActivityRow, intervals: IntervalAnalysis?, analysis: Analysis, remark: String?, week: WeekReview?): StravaText? = when {
-    a.intervalTitle != null -> intervals?.let { StravaTextBuilder.build(it, analysis.globalLoadOn(a), remark, a.speciality, week, RecoveryCheck.line(StravaTexts.readinessOf(a, analysis))) }
-    a.isRun && a.category in setOf("easy", "long") -> StravaTextBuilder.buildEasy(a, analysis.globalLoadOn(a), week, RecoveryCheck.line(StravaTexts.readinessOf(a, analysis)))
+private fun buildText(a: ActivityRow, intervals: IntervalAnalysis?, analysis: Analysis, remark: String?, week: WeekReview?, raceDay: Boolean): StravaText? = when {
+    a.intervalTitle != null -> intervals?.let { StravaTextBuilder.build(it, analysis.globalLoadOn(a), remark, a.speciality, week, (if (raceDay) null else RecoveryCheck.line(StravaTexts.readinessOf(a, analysis)))) }
+    a.isRun && a.category in setOf("easy", "long") -> StravaTextBuilder.buildEasy(a, analysis.globalLoadOn(a), week, (if (raceDay) null else RecoveryCheck.line(StravaTexts.readinessOf(a, analysis))))
     else -> null
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeLoad, isReviewDay, recoveryAlert, recoveryLine, weekLines, weekReviewForHome, weekReviewOf, withoutRecoveries, type ActivityRow, type DailyRow } from "./index";
+import { analyzeLoad, isReviewDay, jourDeCourse, porteLeBilan, recoveryAlert, recoveryLine, weekLines, weekReviewForHome, weekReviewOf, withoutRecoveries, type ActivityRow, type DailyRow } from "./index";
 
 const run = (id: number, startLocal: string, km: number, extra: Partial<ActivityRow> = {}): ActivityRow => ({
   id, startLocal, type: "running", distance: km * 1000, duration: km * 330, averageSpeed: 3.0, averageHr: 148, maxHr: 170, trainingLoad: null, name: "", elevation: null,
@@ -49,5 +49,28 @@ describe("alerte de récupération", () => {
   it("sans mesure de la montre, pas d'alerte", () => {
     const daily: DailyRow[] = [];
     expect(recoveryAlert(analyzeLoad(activites, daily, AUJOURDHUI), activites, AUJOURDHUI)).toBeNull();
+  });
+});
+
+describe("qui porte le bilan de la semaine", () => {
+  const matin = run(21, "2026-11-22 08:00:00", 8);
+  const soir = run(22, "2026-11-22 18:00:00", 10);
+  const course = run(23, "2026-11-22 09:00:00", 21, { manualCategory: "competition" });
+  it("le dimanche, seulement la dernière sortie du jour", () => {
+    const jour = [matin, soir];
+    expect(porteLeBilan(matin, jour)).toBe(false);
+    expect(porteLeBilan(soir, jour)).toBe(true);
+    expect(porteLeBilan(run(24, "2026-11-21 18:00:00", 10), [run(24, "2026-11-21 18:00:00", 10)])).toBe(false);
+  });
+  it("un jour de course : aucun bilan, ni forme (course seule ou avec un footing autour)", () => {
+    expect(porteLeBilan(course, [course])).toBe(false);
+    expect(porteLeBilan(soir, [course, soir])).toBe(false);
+    expect(jourDeCourse(soir, [course, soir])).toBe(true);
+    expect(jourDeCourse(soir, [matin, soir])).toBe(false);
+  });
+  it("une course reconnue autrement (label Strava) compte aussi", () => {
+    const estCourse = (a: ActivityRow) => a.id === 22;
+    expect(porteLeBilan(soir, [matin, soir], estCourse)).toBe(false);
+    expect(jourDeCourse(matin, [matin, soir], estCourse)).toBe(true);
   });
 });

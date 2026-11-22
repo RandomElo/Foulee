@@ -98,7 +98,11 @@ fn outils() -> Value {
         { "name": "seance", "description": "Une séance par son identifiant : chiffres, tours de la montre (distance, durée, FC) et ressenti saisi par l'utilisateur (effort perçu 1 à 10, jambes, douleur, note).",
           "inputSchema": { "type": "object", "properties": { "id": { "type": "integer" } }, "required": ["id"] } },
         { "name": "nolio_calendrier", "description": "Calendrier Nolio (séances prévues par le coach, compétitions) pour les prochains jours. allure_plafond vaut 1 quand l'allure prévue est une limite à ne pas dépasser (footing), pas une cible.",
-          "inputSchema": { "type": "object", "properties": { "jours": { "type": "integer", "description": "Jours à venir (1 à 120, défaut 14)" } } } }
+          "inputSchema": { "type": "object", "properties": { "jours": { "type": "integer", "description": "Jours à venir (1 à 120, défaut 14)" } } } },
+        { "name": "sante", "description": "Santé du jour lue sur la montre, un jour par ligne : FC au repos (bpm), stress moyen, Body Battery maximale, sommeil (s), score de sommeil, VFC de la nuit (ms), pas. Une valeur absente veut dire que la montre ne l'a pas donnée.",
+          "inputSchema": { "type": "object", "properties": { "jours": { "type": "integer", "description": "Fenêtre en jours (1 à 120, défaut 14)" } } } },
+        { "name": "ressentis", "description": "Ressentis saisis par l'utilisateur après ses séances, avec le jour et le titre de la séance : effort perçu (1 à 10), jambes (1 lourdes, 2 normales, 3 légères), douleur (0 aucune, 1 légère, 2 gênante), note.",
+          "inputSchema": { "type": "object", "properties": { "jours": { "type": "integer", "description": "Fenêtre en jours (1 à 120, défaut 28)" } } } }
     ])
 }
 
@@ -127,6 +131,22 @@ fn appeler(conn: &Connection, nom: &str, args: &Value) -> Result<Value, String> 
                 conn,
                 &format!("SELECT date, titre, sport, competition, duree_s, distance_m, allure_s_km, allure_plafond, rpe_prevu AS effort_estime_coach, commentaire AS mot_du_coach FROM nolio_evenements WHERE genre = 'prevu' AND date >= ?1 AND date <= ?2 ORDER BY date, id LIMIT {MAX_LIGNES}"),
                 &[&aujourdhui, &fin],
+            )?))
+        }
+        "sante" => {
+            let depuis = crate::nolio::decaler(&aujourdhui, -entier(args, "jours", 14, 1, 120))?;
+            Ok(Value::Array(lignes(
+                conn,
+                &format!("SELECT date, resting_hr AS fc_repos, avg_stress AS stress, body_battery_high AS body_battery_max, sleep_seconds AS sommeil_s, sleep_score AS score_sommeil, hrv_night AS vfc_nuit_ms, steps AS pas FROM daily WHERE date >= ?1 ORDER BY date DESC LIMIT {MAX_LIGNES}"),
+                &[&depuis],
+            )?))
+        }
+        "ressentis" => {
+            let depuis = crate::nolio::decaler(&aujourdhui, -entier(args, "jours", 28, 1, 120))?;
+            Ok(Value::Array(lignes(
+                conn,
+                &format!("SELECT substr(a.start_local,1,10) AS date, a.name AS titre, f.rpe, f.legs AS jambes, f.pain AS douleur, f.note FROM feelings f JOIN activities a ON a.id = f.activity_id WHERE substr(a.start_local,1,10) >= ?1 ORDER BY a.start_local DESC LIMIT {MAX_LIGNES}"),
+                &[&depuis],
             )?))
         }
         autre => Err(format!("outil inconnu : {autre}")),
@@ -241,6 +261,8 @@ mod tests {
         c.execute("INSERT INTO activities (id, source, external_id, start_local, type, distance, duration) VALUES (2,'garmin','2',?1,'running',5000,1500)", [format!("{ancien}T07:00:00")]).unwrap();
         c.execute("INSERT INTO laps (activity_id, idx, distance, duration, avg_hr) VALUES (1,0,1000,300,148)", []).unwrap();
         c.execute("INSERT INTO feelings (activity_id, rpe, legs, pain, note, answered_at) VALUES (1,5,2,0,'ok','x')", []).unwrap();
+        c.execute("INSERT INTO daily (date, resting_hr, sleep_seconds, hrv_night) VALUES (?1, 49, 27000, 62)", [&hier]).unwrap();
+        c.execute("INSERT INTO daily (date, resting_hr) VALUES (?1, 55)", [&ancien]).unwrap();
         c.execute("INSERT INTO nolio_evenements (id, genre, competition, date, titre, sport, duree_s, allure_s_km, allure_plafond, rpe_prevu, commentaire, lu_le) VALUES ('tp-1','prevu',0,?1,'Footing','Running',2700,295,1,2,'Facile, voir https://exemple.fr/x','x')", [demain]).unwrap();
         c.execute("INSERT INTO nolio_evenements (id, genre, competition, date, titre, lu_le) VALUES ('t-1','reel',0,?1,'Réalisé','x')", [crate::nolio::aujourd_hui()]).unwrap();
         c
@@ -277,7 +299,7 @@ mod tests {
         assert_eq!(r["result"]["serverInfo"]["name"], "foulee");
         let l = appel(&c, json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" }));
         let noms: Vec<&str> = l["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(noms, ["seances_recentes", "seance", "nolio_calendrier"]);
+        assert_eq!(noms, ["seances_recentes", "seance", "nolio_calendrier", "sante", "ressentis"]);
         assert_eq!(appel(&c, json!({ "jsonrpc": "2.0", "id": 3, "method": "ping" }))["result"], json!({}));
         // Une notification n'a pas de réponse.
         assert!(traiter(&c, &json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).is_none());
@@ -307,6 +329,23 @@ mod tests {
         assert_eq!(r["result"]["isError"], true);
         let r = appel(&c, json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "seance", "arguments": {} } }));
         assert_eq!(r["result"]["isError"], true);
+    }
+
+    #[test]
+    fn la_sante_et_les_ressentis_respectent_la_fenetre_et_masquent_les_textes() {
+        let c = base();
+        let s = contenu(&appel(&c, json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": { "name": "sante", "arguments": { "jours": 7 } } })));
+        let l = s.as_array().unwrap();
+        assert_eq!(l.len(), 1, "le jour d'il y a 60 jours est hors fenêtre");
+        assert_eq!((l[0]["fc_repos"].as_f64(), l[0]["sommeil_s"].as_f64(), l[0]["vfc_nuit_ms"].as_f64()), (Some(49.0), Some(27000.0), Some(62.0)));
+        assert!(l[0]["stress"].is_null(), "une valeur absente reste absente");
+        let large = contenu(&appel(&c, json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "sante", "arguments": { "jours": 9999 } } })));
+        assert_eq!(large.as_array().unwrap().len(), 2);
+        let r = contenu(&appel(&c, json!({ "jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": { "name": "ressentis", "arguments": {} } })));
+        let a = r.as_array().unwrap();
+        assert_eq!(a.len(), 1);
+        assert_eq!((a[0]["rpe"].as_i64(), a[0]["jambes"].as_i64(), a[0]["note"].as_str()), (Some(5), Some(2), Some("ok")));
+        assert!(a[0]["titre"].as_str().unwrap().contains("[e-mail]"), "le titre de la séance est masqué comme ailleurs");
     }
 
     #[test]

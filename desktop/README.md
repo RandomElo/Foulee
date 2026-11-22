@@ -59,7 +59,7 @@ L'application contient un serveur MCP (stdio) qui laisse un assistant (Claude, C
 la base est ouverte en lecture seule avec la clé du trousseau, aucun outil n'écrit, et les adresses e-mail, numéros de téléphone et liens sont masqués dans les noms et commentaires.
 
 Outils : `seances_recentes` (derniers jours), `seance` (une séance avec ses tours et ton ressenti), `nolio_calendrier` (séances prévues et compétitions à venir ; `allure_plafond`
-vaut 1 quand l'allure prévue est une limite à ne pas dépasser, comme sur un footing, et non une cible).
+vaut 1 quand l'allure prévue est une limite à ne pas dépasser, comme sur un footing, et non une cible), `sante` (FC au repos, sommeil, VFC, stress, pas, un jour par ligne) et `ressentis` (tes effort perçu, jambes, douleur et notes, avec le jour et le titre de la séance).
 
 Le programme est l'application elle-même avec l'option `--mcp` (ouvre Foulée une première fois pour créer la base et la clé).
 

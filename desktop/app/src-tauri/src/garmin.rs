@@ -39,6 +39,12 @@ pub struct Activite {
     pub fc_max: Option<f64>,
     pub charge: Option<f64>,
     pub denivele: Option<f64>,
+    /// Température minimale relevée par la montre (°C).
+    pub temp_min: Option<f64>,
+    /// Training Effect aérobie (0 à 5).
+    pub te_aerobie: Option<f64>,
+    /// Secondes passées dans chacune des 5 zones de FC, écrites « z1,z2,z3,z4,z5 ».
+    pub zones_fc: Option<String>,
 }
 
 /// Une activité de la liste de Garmin. Refuse ce qui n'a pas d'identifiant ni de départ lisibles. L'heure est normalisée en « AAAA-MM-JJTHH:MM:SS ».
@@ -57,7 +63,16 @@ pub fn activite_depuis(v: &Value) -> Result<Activite, String> {
         fc_max: nombre(&v["fcMax"]),
         charge: nombre(&v["charge"]),
         denivele: nombre(&v["denivele"]),
+        temp_min: nombre(&v["tempMin"]),
+        te_aerobie: nombre(&v["teAerobie"]).filter(|t| (0.0..=5.0).contains(t)),
+        zones_fc: zones_depuis(&v["zones"]),
     })
+}
+
+/// Les 5 zones de FC en « z1,z2,z3,z4,z5 » : seulement si les cinq sont des nombres positifs ou nuls et que la montre en a mesuré (une somme nulle veut dire « pas de FC »).
+fn zones_depuis(v: &Value) -> Option<String> {
+    let z: Vec<f64> = v.as_array()?.iter().map(nombre).collect::<Option<Vec<f64>>>()?;
+    (z.len() == 5 && z.iter().all(|x| *x >= 0.0) && z.iter().sum::<f64>() > 0.0).then(|| z.iter().map(|x| x.round().to_string()).collect::<Vec<_>>().join(","))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -135,11 +150,12 @@ pub fn enregistrer_activites(conn: &Connection, acts: &[Activite]) -> Result<(us
         let ext = a.garmin_id.to_string();
         let avant = instantane(&tx, &ext);
         tx.execute(
-            "INSERT INTO activities (source, external_id, start_local, type, distance, duration, avg_speed, avg_hr, max_hr, training_load, name, elevation)
-             VALUES ('garmin', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO activities (source, external_id, start_local, type, distance, duration, avg_speed, avg_hr, max_hr, training_load, name, elevation, min_temperature, aerobic_te, hr_zones)
+             VALUES ('garmin', ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
              ON CONFLICT (source, external_id) DO UPDATE SET start_local=excluded.start_local, type=excluded.type, distance=excluded.distance, duration=excluded.duration,
-                avg_speed=excluded.avg_speed, avg_hr=excluded.avg_hr, max_hr=excluded.max_hr, training_load=excluded.training_load, name=excluded.name, elevation=excluded.elevation",
-            params![ext, a.start_local, a.type_, a.distance, a.duree, a.vitesse, a.fc, a.fc_max, a.charge, a.nom, a.denivele],
+                avg_speed=excluded.avg_speed, avg_hr=excluded.avg_hr, max_hr=excluded.max_hr, training_load=excluded.training_load, name=excluded.name, elevation=excluded.elevation,
+                min_temperature=excluded.min_temperature, aerobic_te=excluded.aerobic_te, hr_zones=excluded.hr_zones",
+            params![ext, a.start_local, a.type_, a.distance, a.duree, a.vitesse, a.fc, a.fc_max, a.charge, a.nom, a.denivele, a.temp_min, a.te_aerobie, a.zones_fc],
         )
         .map_err(|e| format!("écriture de l'activité {ext} : {e}"))?;
         match avant {
@@ -230,7 +246,9 @@ pub fn enregistrer_prenom(conn: &Connection, nom_complet: &str) -> Result<(), St
 /// Une activité de la liste de Garmin vers la forme lue par `activite_depuis`.
 fn activite_brute(a: &Value) -> Value {
     json!({ "id": a["activityId"], "debut": a["startTimeLocal"], "type": a["activityType"]["typeKey"], "nom": a["activityName"], "distance": a["distance"], "duree": a["duration"],
-        "vitesse": a["averageSpeed"], "fc": a["averageHR"], "fcMax": a["maxHR"], "charge": a["activityTrainingLoad"], "denivele": a["elevationGain"] })
+        "vitesse": a["averageSpeed"], "fc": a["averageHR"], "fcMax": a["maxHR"], "charge": a["activityTrainingLoad"], "denivele": a["elevationGain"],
+        "tempMin": a["minTemperature"], "teAerobie": a["aerobicTrainingEffect"],
+        "zones": json!([a["hrTimeInZone_1"], a["hrTimeInZone_2"], a["hrTimeInZone_3"], a["hrTimeInZone_4"], a["hrTimeInZone_5"]]) })
 }
 
 /// Les tours (« lapDTOs ») d'une activité vers la forme lue par `tours_depuis`.
@@ -396,6 +414,30 @@ mod tests {
         for mauvaise in [json!({}), json!({ "id": 0, "debut": "2026-11-12 07:00:00" }), json!({ "id": 5, "debut": "hier" }), json!({ "id": 5, "debut": "2026-02-30 07:00:00" }), json!({ "id": "x", "debut": "2026-11-12 07:00:00" })] {
             assert!(activite_depuis(&mauvaise).is_err(), "{mauvaise} aurait dû être refusée");
         }
+    }
+
+    #[test]
+    fn la_temperature_le_training_effect_et_les_zones_de_fc_sont_lus_et_gardes() {
+        let liste = json!({ "activityId": 9, "activityName": "Tempo", "startTimeLocal": "2026-11-12 07:00:00", "activityType": { "typeKey": "running" }, "distance": 10000.0, "averageHR": 160.0,
+            "minTemperature": 8.5, "aerobicTrainingEffect": 3.9, "hrTimeInZone_1": 60.0, "hrTimeInZone_2": 1200.4, "hrTimeInZone_3": 900.0, "hrTimeInZone_4": 300.0, "hrTimeInZone_5": 0.0 });
+        let a = activite_depuis(&activite_brute(&liste)).unwrap();
+        assert_eq!((a.temp_min, a.te_aerobie, a.zones_fc.as_deref()), (Some(8.5), Some(3.9), Some("60,1200,900,300,0")));
+        // Sans mesure de FC (somme nulle), zones incomplètes ou Training Effect hors échelle : rien, pas des zéros.
+        let vide = activite_depuis(&activite_brute(&json!({ "activityId": 10, "startTimeLocal": "2026-11-12 07:00:00", "hrTimeInZone_1": 0.0, "hrTimeInZone_2": 0.0, "hrTimeInZone_3": 0.0, "hrTimeInZone_4": 0.0, "hrTimeInZone_5": 0.0, "aerobicTrainingEffect": 9.0 }))).unwrap();
+        assert_eq!((vide.temp_min, vide.te_aerobie, vide.zones_fc), (None, None, None));
+        let partiel = activite_depuis(&activite_brute(&json!({ "activityId": 11, "startTimeLocal": "2026-11-12 07:00:00", "hrTimeInZone_1": 60.0 }))).unwrap();
+        assert_eq!(partiel.zones_fc, None);
+        // Écrites en base, relues, et remplacées à la relecture sans toucher à la catégorie choisie à la main.
+        let c = base();
+        enregistrer_activites(&c, &[a.clone()]).unwrap();
+        c.execute("UPDATE activities SET manual_category = 'easy'", []).unwrap();
+        let ligne = |c: &Connection| c.query_row("SELECT min_temperature, aerobic_te, hr_zones, manual_category FROM activities", [], |r| Ok((r.get::<_, Option<f64>>(0)?, r.get::<_, Option<f64>>(1)?, r.get::<_, Option<String>>(2)?, r.get::<_, Option<String>>(3)?))).unwrap();
+        assert_eq!(ligne(&c), (Some(8.5), Some(3.9), Some("60,1200,900,300,0".to_string()), Some("easy".to_string())));
+        let mut b = a;
+        b.temp_min = Some(11.0);
+        enregistrer_activites(&c, &[b]).unwrap();
+        assert_eq!(ligne(&c).0, Some(11.0));
+        assert_eq!(ligne(&c).3.as_deref(), Some("easy"));
     }
 
     #[test]

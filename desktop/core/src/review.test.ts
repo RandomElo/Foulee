@@ -31,3 +31,13 @@ describe("sorties à classer", () => {
     expect(item?.activity.id).toBe(99);
   });
 });
+
+describe("Training Effect", () => {
+  it("un Training Effect aérobie très élevé sur une sortie sans fractionné ajoute une raison", () => {
+    const a = run(7, "2026-11-10 19:00:00", 15000, 3.7, { averageHr: 183, aerobicTe: 4.5, name: "Semi de test" });
+    const [item] = reviewList([a], 190);
+    expect(item?.reasons).toContain("Training Effect aérobie 4,5");
+    const sans = reviewList([{ ...a, aerobicTe: 4.0 }], 190)[0];
+    expect(sans?.reasons.some((r) => r.startsWith("Training Effect"))).toBe(false);
+  });
+});

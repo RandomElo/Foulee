@@ -163,6 +163,21 @@ object WeekReviews {
         )
     }
 
+    /** A race: chosen by hand as a competition, or labelled "Race" on Strava. */
+    fun isRace(a: ActivityRow) = a.category == "competition" || a.strava?.hasLabel("Race") == true
+
+    private fun runsOfDay(a: ActivityRow, activities: List<ActivityRow>) = activities.filter { it.id > 0 && it.isRun && it.startLocal.take(10) == a.startLocal.take(10) }
+
+    /** A day with a race: it gets neither the review of the week nor the form figure in the Strava texts. */
+    fun isRaceDay(a: ActivityRow, activities: List<ActivityRow>) = runsOfDay(a, activities).any { isRace(it) }
+
+    /** The run that carries the review of the week: on a Sunday, the last run of the day only (not every one), and none on a day with a race. */
+    fun carriesReview(a: ActivityRow, activities: List<ActivityRow>): Boolean {
+        if (!a.isRun || !isReviewDay(LocalDate.parse(a.startLocal.take(10)))) return false
+        val runs = runsOfDay(a, activities)
+        return runs.none { isRace(it) } && runs.maxByOrNull { it.startLocal }?.id == a.id
+    }
+
     /** True on a Sunday: the day the review goes on Strava and shows on the home page. */
     fun isReviewDay(date: LocalDate) = date.dayOfWeek == DayOfWeek.SUNDAY
 

@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { select } from "./db";
+import { repo } from "./repo";
 
 export interface BilanGarmin { nouvelles: number; modifiees: number; tours: number; jours: number; ignorees: string[] }
 export interface EtatGarmin { total: number; dernier: string | null }
@@ -20,6 +21,8 @@ interface Api {
   annuler(): Promise<void>;
 }
 
+const CHAMPS_V6 = "garmin-champs-v6";
+
 const tauri: Api = {
   async etat() {
     const [l] = await select<{ n: number; dernier: string | null }>("SELECT count(*) AS n, max(start_local) AS dernier FROM activities WHERE source = 'garmin'");
@@ -34,7 +37,13 @@ const tauri: Api = {
   deconnecter: () => invoke<void>("garmin_deconnecter"),
   async synchroniser(complet, onProgress) {
     const off = await listen<{ etape: string; fait: number; total: number }>("garmin-progression", (e) => onProgress(e.payload.etape, e.payload.fait, e.payload.total));
-    try { return await invoke<BilanGarmin>("garmin_synchroniser", { complet }); } finally { off(); }
+    // Les champs ajoutés en version 6 (température, Training Effect, zones de FC) manquent aux activités déjà lues : une seule relecture complète les rattrape.
+    const rattrape = (await repo.getSetting(CHAMPS_V6).catch(() => null)) !== "1";
+    try {
+      const bilan = await invoke<BilanGarmin>("garmin_synchroniser", { complet: complet || rattrape });
+      if (rattrape) await repo.setSetting(CHAMPS_V6, "1").catch(() => undefined);
+      return bilan;
+    } finally { off(); }
   },
   annuler: () => invoke<void>("garmin_annuler"),
 };

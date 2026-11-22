@@ -61,6 +61,18 @@ describe("dépôt Tauri contre le schéma réel", () => {
     expect((await tauriRepo.load()).seances).toHaveLength(n);
   });
 
+  it("lit la température, le Training Effect et les zones de FC de la montre, et garde le type choisi à la main", async () => {
+    db.prepare("INSERT INTO activities (source, external_id, start_local, type, distance, duration, name, min_temperature, aerobic_te, hr_zones) VALUES ('garmin', '1', '2026-11-10T08:00:00', 'running', 10000, 3000, 'Tempo', 8.5, 4.3, '60,1200,900,300,0')").run();
+    db.prepare("INSERT INTO activities (source, external_id, start_local, type, distance, duration, name, hr_zones) VALUES ('garmin', '2', '2026-11-11T08:00:00', 'running', 5000, 1500, 'Footing', 'abc')").run();
+    const [a, b] = (await tauriRepo.load()).seances;
+    expect(a).toMatchObject({ minTemperature: 8.5, aerobicTe: 4.3, hrZones: [60, 1200, 900, 300, 0] });
+    expect(b).toMatchObject({ minTemperature: null, aerobicTe: null, hrZones: null });
+    await tauriRepo.setCategory(a!.id, "competition");
+    expect((await tauriRepo.load()).seances[0]?.manualCategory).toBe("competition");
+    await tauriRepo.setCategory(a!.id, null);
+    expect((await tauriRepo.load()).seances[0]?.manualCategory).toBeNull();
+  });
+
   it("le ressenti s'enregistre, se modifie, et refuse un RPE hors 1 à 10", async () => {
     await tauriRepo.loadDemo();
     const id = (await tauriRepo.load()).seances[0]!.id;
