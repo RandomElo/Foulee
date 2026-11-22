@@ -14,6 +14,7 @@ export * from "./sessionanalysis";
 export * from "./coaching";
 export * from "./profile";
 export * from "./prompt";
+export { hillsTitle, climbs as hillClimbs, bestRun as hillBestRun, type Climb } from "./hills";
 export { reviewList, REVIEW_SCORE, type ReviewItem, type StravaDit } from "./review";
 export * from "./stravatext";
 export * from "./insights";

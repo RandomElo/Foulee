@@ -142,8 +142,9 @@ object Sync {
         val fixed = Intervals.repairLaps(laps, samples) ?: laps
         val detail = ActivityDetail(samples, track, fixed)
         db.saveDetail(id, detail)
-        db.setIntervalTitle(id, Intervals.analyze(fixed, db.recoveryModesOf(id))?.title)
         val activity = known ?: db.activities().firstOrNull { it.id == id }
+        // Laps first; hill repeats read from the elevation curve only for a run whose laps give no session
+        db.setIntervalTitle(id, Intervals.analyze(fixed, db.recoveryModesOf(id))?.title ?: if (activity?.isRun == true) Hills.title(samples) else null)
         db.setTrimp(id, Insights.trimpFromSamples(samples, activity?.averageHr, activity?.duration, refs))
         return detail
     }

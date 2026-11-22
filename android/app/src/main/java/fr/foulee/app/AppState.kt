@@ -24,7 +24,7 @@ class Snapshot(
 private const val DATA_VERSION = 7
 
 /** Raise it when the interval detection changes: the titles stored in the base are rebuilt from the stored laps. */
-private const val TITLES_VERSION = 26
+private const val TITLES_VERSION = 27
 
 class AppState(private val context: Context) {
     private val settings = Settings(context)
@@ -362,6 +362,9 @@ class AppState(private val context: Context) {
         }
         val laps = db.lapsOf(db.lapIds())
         for ((id, l) in laps) db.setIntervalTitle(id, Intervals.analyze(l, db.recoveryModesOf(id))?.title)
+        // Hill repeats recorded as a single lap: read from the elevation curve (only where the laps give no session)
+        val runsWithoutTitle = db.activities().filter { it.isRun && it.intervalTitle == null }.map { it.id }.toSet()
+        for (id in db.detailIds()) if (id in runsWithoutTitle) db.detail(id)?.samples?.let { Hills.title(it) }?.let { db.setIntervalTitle(id, it) }
         settings.titlesVersion = TITLES_VERSION
     }
 
@@ -392,7 +395,7 @@ class AppState(private val context: Context) {
     /** Timed or measured recoveries for one type of efforts, chosen by hand (null: back to the automatic rule). The title follows at once. */
     fun setRecoveryMode(id: Long, key: String, measured: Boolean?) = thread {
         db.setRecoveryMode(id, key, measured)
-        db.lapsOf(listOf(id))[id]?.let { db.setIntervalTitle(id, Intervals.analyze(it, db.recoveryModesOf(id))?.title) }
+        db.lapsOf(listOf(id))[id]?.let { db.setIntervalTitle(id, Intervals.analyze(it, db.recoveryModesOf(id))?.title ?: db.detail(id)?.samples?.let { s -> Hills.title(s) }) }
         reload()
     }
 
